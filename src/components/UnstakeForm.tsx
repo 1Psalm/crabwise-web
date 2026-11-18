@@ -1,6 +1,11 @@
 import { useState, type FormEvent } from 'react'
-import { Button, Input } from '@/components/ui'
+import { Button, Input, Modal } from '@/components/ui'
 import { useStellarBalance, validateStakeBalance, requireBalance } from '@/hooks/useStellarBalance'
+
+/** Formats a token amount without trailing float noise (e.g. 0.30000000000000004). */
+function formatAmount(value: number): string {
+  return String(Number(value.toFixed(7)))
+}
 
 export interface UnstakeFormProps {
   /** User's current staked balance eligible for unstaking. */
@@ -20,8 +25,11 @@ export interface UnstakeFormProps {
 }
 
 /**
- * Unstaking form with strict pre-transaction balance validation (#941).
- * Prevents users from unstaking more tokens than their active staked balance.
+ * Unstaking form with strict pre-transaction balance validation (#941) and a
+ * confirmation step before the transaction is signed (#143).
+ * Prevents users from unstaking more tokens than their active staked balance,
+ * and makes the consequences of unstaking explicit so a mis-click cannot start
+ * a transaction.
  */
 export default function UnstakeForm({
   stakedBalance: propStakedBalance,
@@ -44,6 +52,8 @@ export default function UnstakeForm({
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
   const [isSuccess, setIsSuccess] = useState<boolean>(false)
+  // Amount awaiting confirmation; `null` keeps the dialog closed.
+  const [pendingAmount, setPendingAmount] = useState<string | null>(null)
 
   const handleMaxClick = () => {
     setAmount(effectiveStakedBalance)
@@ -52,6 +62,7 @@ export default function UnstakeForm({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (pendingAmount !== null || isSubmitting) return
     setIsSuccess(false)
 
     // 1. Validate balance before transaction (#941)
@@ -77,13 +88,25 @@ export default function UnstakeForm({
       return
     }
 
-    // 3. Initiate unstake transaction
+    // 3. Ask the user to confirm the consequences before signing (#143).
+    //    No transaction is started until the dialog is confirmed.
     setError(null)
+    setPendingAmount(amount)
+  }
+
+  const handleCancelConfirmation = () => {
+    setPendingAmount(null)
+  }
+
+  const handleConfirmUnstake = async () => {
+    if (pendingAmount === null) return
+
+    const confirmedAmount = pendingAmount
     setIsSubmitting(true)
 
     try {
       if (onUnstake) {
-        await onUnstake(amount)
+        await onUnstake(confirmedAmount)
       }
       setIsSuccess(true)
       onSuccess?.()
@@ -93,6 +116,8 @@ export default function UnstakeForm({
       onError?.(failureMsg)
     } finally {
       setIsSubmitting(false)
+      // Close only after the flow settles so the dialog is not left behind on error.
+      setPendingAmount(null)
     }
   }
 
@@ -149,6 +174,63 @@ export default function UnstakeForm({
       >
         {isSubmitting ? 'Unstaking...' : 'Unstake Tokens'}
       </Button>
+
+      <Modal
+        isOpen={pendingAmount !== null}
+        title="Confirm unstake"
+        description="Review what happens before you sign this transaction."
+        onClose={handleCancelConfirmation}
+      >
+        <div className="flex flex-col gap-4" data-testid="unstake-confirmation">
+          <p className="text-body text-foreground">
+            You are about to unstake{' '}
+            <strong className="font-semibold">
+              {pendingAmount} {unit}
+            </strong>
+            .
+          </p>
+
+          <ul className="flex flex-col gap-2 text-caption text-muted">
+            <li>
+              Staked balance after unstaking:{' '}
+              <strong className="font-mono text-foreground">
+                {pendingAmount !== null
+                  ? formatAmount(Number(effectiveStakedBalance) - Number(pendingAmount))
+                  : effectiveStakedBalance}{' '}
+                {unit}
+              </strong>
+            </li>
+            <li>Staking rewards stop accruing on the unstaked amount.</li>
+            <li>The unstaked tokens become available to withdraw after the unbonding period.</li>
+            <li>This request cannot be cancelled once the transaction is signed.</li>
+          </ul>
+
+          <p className="text-caption-sm text-muted">
+            Nothing is sent to your wallet until you choose &ldquo;Confirm unstake&rdquo;.
+          </p>
+
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleCancelConfirmation}
+              disabled={isSubmitting}
+              data-testid="unstake-cancel-btn"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={handleConfirmUnstake}
+              isLoading={isSubmitting}
+              data-testid="unstake-confirm-btn"
+            >
+              Confirm unstake
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </form>
   )
 }
