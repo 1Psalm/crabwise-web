@@ -23,10 +23,18 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
    * `<button><a></button>` nesting that browsers refuse to make clickable.
    */
   asChild?: boolean
+  /**
+   * Explicit accessible name for icon-only buttons (#113).
+   * When children is a bare icon with no visible text, pass `aria-label` so
+   * assistive technology can identify the action (e.g. `aria-label="Close"`).
+   */
+  'aria-label'?: string
   children: ReactNode
 }
 
 const BASE_CLASSES =
+  // `gap-2` between icon and label uses logical spacing so it works in both
+  // LTR and RTL without manual margin overrides (#116).
   'inline-flex items-center justify-center gap-2 rounded-control font-semibold shadow-card transition-colors focus-visible:shadow-focus-ring disabled:cursor-not-allowed disabled:opacity-50'
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {

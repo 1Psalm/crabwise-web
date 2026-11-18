@@ -50,7 +50,7 @@ export default function Input({
         className={cn(BASE_CLASSES, error ? 'border-danger' : 'border-line', className)}
       />
       {error ? (
-        <p id={errorId} role="alert" className="text-caption-sm text-danger">
+        <p id={errorId} role="alert" aria-live="polite" className="text-caption-sm text-danger">
           {error}
         </p>
       ) : null}

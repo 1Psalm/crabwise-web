@@ -59,4 +59,26 @@ describe('Input accessibility wiring (#797)', () => {
 
     expect(typed).toBe('hi')
   })
+
+  it('does not retain aria-invalid or aria-describedby when error is cleared (#114)', () => {
+    const { rerender } = render(<Input label="Email" error="Required." />)
+
+    const input = screen.getByLabelText('Email')
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(input.getAttribute('aria-describedby')).toContain(`${input.id}-error`)
+
+    rerender(<Input label="Email" error={null} />)
+
+    expect(input).not.toHaveAttribute('aria-invalid')
+    // error node is gone so the error id is no longer in describedby
+    expect(input.getAttribute('aria-describedby') ?? '').not.toContain(`${input.id}-error`)
+  })
+
+  it('error message has role alert and aria-live so it is announced on appearance (#114)', () => {
+    render(<Input label="Email" error="Invalid email address." />)
+
+    const errorEl = screen.getByRole('alert')
+    expect(errorEl).toHaveAttribute('aria-live', 'polite')
+    expect(errorEl).toHaveTextContent('Invalid email address.')
+  })
 })

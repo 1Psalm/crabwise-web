@@ -51,3 +51,33 @@ describe('Select', () => {
     expect(container.querySelector('select')?.getAttribute('error')).toBeNull()
   })
 })
+
+describe('Select RTL layout (#115)', () => {
+  it('renders correctly inside an RTL container', () => {
+    const { container } = render(
+      <div dir="rtl">
+        <Select label="الفئة">
+          <option value="a">خيار أ</option>
+          <option value="b">خيار ب</option>
+        </Select>
+      </div>,
+    )
+
+    const select = screen.getByLabelText('الفئة')
+    expect(select).toBeInstanceOf(HTMLSelectElement)
+    expect(container.querySelector('[dir="rtl"]')).toBeInTheDocument()
+  })
+
+  it('label and select remain associated in RTL', () => {
+    render(
+      <div dir="rtl">
+        <Select label="العملة" error="اختر عملة">
+          <option value="">اختر</option>
+        </Select>
+      </div>,
+    )
+
+    const select = screen.getByLabelText('العملة')
+    expect(select).toHaveAttribute('aria-invalid', 'true')
+  })
+})
