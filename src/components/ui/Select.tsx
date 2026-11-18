@@ -28,6 +28,8 @@ export default function Select({ label, error, hint, className, id, children, ..
       <label htmlFor={selectId} className="text-caption-sm font-semibold text-foreground">
         {label}
       </label>
+      {/* dir="auto" inherits document direction; padding uses logical properties
+          (ps/pe) so the chevron gutter stays on the correct side in RTL (#115). */}
       <select
         id={selectId}
         aria-invalid={error ? true : undefined}

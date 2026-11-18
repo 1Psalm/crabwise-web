@@ -26,3 +26,29 @@ describe('React Testing Library setup', () => {
     expect(screen.getByRole('button')).toHaveTextContent('ABCDEF…QRST')
   })
 })
+
+describe('Button RTL layout (#116)', () => {
+  it('renders correctly inside an RTL container without reversing directional icons', () => {
+    render(
+      <div dir="rtl">
+        <Button aria-label="إغلاق">×</Button>
+      </div>,
+    )
+
+    const button = screen.getByRole('button', { name: 'إغلاق' })
+    expect(button).toBeInTheDocument()
+    expect(button).toHaveClass('inline-flex')
+  })
+
+  it('label text remains readable in RTL', () => {
+    render(
+      <div dir="rtl">
+        <Button variant="primary">حفظ التغييرات</Button>
+      </div>,
+    )
+
+    const button = screen.getByRole('button', { name: 'حفظ التغييرات' })
+    expect(button).toBeEnabled()
+    expect(button).toHaveClass('gap-2')
+  })
+})

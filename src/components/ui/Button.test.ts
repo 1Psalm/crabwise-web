@@ -4,6 +4,22 @@ import { MemoryRouter, Link } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import Button from './Button'
 
+describe('Icon-only button accessible name (#113)', () => {
+  it('forwards aria-label to the button element so icon-only buttons are identifiable', () => {
+    const html = renderToStaticMarkup(
+      createElement(Button, { 'aria-label': 'Close' }, '×')
+    )
+    expect(html).toContain('aria-label="Close"')
+  })
+
+  it('renders a plain button with visible text and no aria-label', () => {
+    const html = renderToStaticMarkup(createElement(Button, null, 'Save'))
+    expect(html).toContain('<button')
+    expect(html).toContain('Save')
+    expect(html).not.toContain('aria-label')
+  })
+})
+
 describe('Button asChild (#780)', () => {
   it('renders a single anchor when wrapping a react-router Link — no button wrapper', () => {
     const html = renderToStaticMarkup(
