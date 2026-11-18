@@ -385,3 +385,39 @@ describe('double-submit prevention (#937)', () => {
     await waitFor(() => expect(onPay).toHaveBeenCalledTimes(1))
   })
 })
+
+describe('form errors remain visible after failed submission (#139)', () => {
+  it('keeps the error message visible after a failed ContactForm submit', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn().mockRejectedValue(new Error('Server error'))
+    render(<ContactForm onSubmit={onSubmit} rateLimitKey="test-error-visible" />)
+
+    await user.type(screen.getByLabelText(/^email$/i), 'user@example.com')
+    await user.type(screen.getByLabelText(/message/i), 'Hello there')
+    await user.click(screen.getByRole('button', { name: /send message/i }))
+
+    // Error message is shown and remains in the document for the user to read.
+    expect(await screen.findByText(/server error/i)).toBeInTheDocument()
+    expect(screen.getByText(/server error/i)).toBeInTheDocument()
+  })
+
+  it('allows the user to retry after a failed submission', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Temporary failure'))
+      .mockResolvedValue(undefined)
+    render(<ContactForm onSubmit={onSubmit} rateLimitKey="test-error-retry" />)
+
+    await user.type(screen.getByLabelText(/^email$/i), 'user@example.com')
+    await user.type(screen.getByLabelText(/message/i), 'Hello there')
+    await user.click(screen.getByRole('button', { name: /send message/i }))
+
+    // First attempt fails — error shown.
+    expect(await screen.findByText(/temporary failure/i)).toBeInTheDocument()
+
+    // The submit button must be re-enabled so the user can retry.
+    const button = screen.getByRole('button', { name: /send message/i })
+    expect(button).not.toBeDisabled()
+  })
+})
