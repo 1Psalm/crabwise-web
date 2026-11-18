@@ -53,6 +53,8 @@ export interface UseFormSubmissionResult<TArgs extends unknown[]> {
    * submission (#145).
    */
   submissionError: SubmissionError | null
+  /** Re-runs the last submission with the same inputs so users can retry (#139). */
+  retry: () => Promise<void>
 }
 
 /** Derives the coarse error kind from a caught value. */
@@ -92,6 +94,7 @@ export function useFormSubmission<TArgs extends unknown[] = []>(
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submissionError, setSubmissionError] = useState<SubmissionError | null>(null)
   const inFlight = useRef(false)
+  const lastArgs = useRef<TArgs | null>(null)
   const cooldownTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const reset = useCallback(() => {
@@ -108,10 +111,12 @@ export function useFormSubmission<TArgs extends unknown[] = []>(
     async (...args: TArgs) => {
       if (inFlight.current) return
       inFlight.current = true
+      lastArgs.current = args
       setIsSubmitting(true)
-      setSubmissionError(null)
+      // Keep the previous error visible until a submission succeeds (#139).
       try {
         await handler(...args)
+        setSubmissionError(null)
         // Success cooldown — keep disabled briefly so double-clicks after
         // the network resolves still cannot re-submit.
         cooldownTimer.current = setTimeout(() => {
@@ -136,10 +141,14 @@ export function useFormSubmission<TArgs extends unknown[] = []>(
     [cooldownMs, handler],
   )
 
+  const retry = useCallback(async () => {
+    if (lastArgs.current) await runSubmit(...lastArgs.current)
+  }, [runSubmit])
+
   const submitLabel = useCallback(
     (idle: string) => (isSubmitting ? 'Submitting…' : idle),
     [isSubmitting],
   )
 
-  return { isSubmitting, submitLabel, runSubmit, reset, submissionError }
+  return { isSubmitting, submitLabel, runSubmit, reset, submissionError, retry }
 }

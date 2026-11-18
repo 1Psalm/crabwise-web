@@ -25,3 +25,8 @@ export function getAdjacentIndices(
     next: (safeIndex + 1) % safeTotal,
   }
 }
+
+/** Navigation controls only make sense with more than one image (#120). */
+export function canNavigate(total: number): boolean {
+  return total > 1
+}
