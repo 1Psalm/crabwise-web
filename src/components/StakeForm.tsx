@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Button, Input } from '@/components/ui'
 import { useStellarBalance, validateStakeBalance, requireBalance } from '@/hooks/useStellarBalance'
 
@@ -41,6 +41,9 @@ export default function StakeForm({
   const [amount, setAmount] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
+  // A ref, not state, so a second submit in the same tick is rejected before
+  // React can re-render and disable the button (#141).
+  const submitInFlight = useRef(false)
   const [isSuccess, setIsSuccess] = useState<boolean>(false)
 
   const handleMaxClick = () => {
@@ -50,6 +53,9 @@ export default function StakeForm({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+
+    // 0. Ignore duplicate submissions while a transaction is already pending.
+    if (submitInFlight.current) return
     setIsSuccess(false)
 
     // 1. Validate balance before transaction (#941)
@@ -75,7 +81,8 @@ export default function StakeForm({
       return
     }
 
-    // 3. Initiate stake transaction
+    // 3. Initiate exactly one stake transaction per submission.
+    submitInFlight.current = true
     setError(null)
     setIsSubmitting(true)
 
@@ -90,12 +97,18 @@ export default function StakeForm({
       setError(failureMsg)
       onError?.(failureMsg)
     } finally {
+      submitInFlight.current = false
       setIsSubmitting(false)
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className={`flex flex-col gap-4 ${className}`}>
+    <form
+      onSubmit={handleSubmit}
+      noValidate
+      aria-busy={isSubmitting || undefined}
+      className={`flex flex-col gap-4 ${className}`}
+    >
       <div className="flex items-center justify-between text-caption text-muted">
         <span>Available balance:</span>
         <div className="flex items-center gap-2">
@@ -125,12 +138,19 @@ export default function StakeForm({
         value={amount}
         error={error}
         hint={`Enter up to ${effectiveBalance} ${unit}`}
+        disabled={isSubmitting}
         onChange={(e) => {
           setAmount(e.target.value)
           if (error) setError(null)
         }}
         data-testid="stake-amount-input"
       />
+
+      {isSubmitting ? (
+        <p role="status" className="text-caption text-muted" data-testid="stake-pending-msg">
+          Staking {amount} {unit}… transaction pending.
+        </p>
+      ) : null}
 
       {isSuccess ? (
         <p role="status" className="text-caption text-success" data-testid="stake-success-msg">
@@ -140,7 +160,7 @@ export default function StakeForm({
 
       <Button
         type="submit"
-        disabled={isSubmitting}
+        isLoading={isSubmitting}
         className="w-full justify-center"
         data-testid="stake-submit-btn"
       >
