@@ -27,7 +27,12 @@ export default function ErrorState({
   code,
 }: ErrorStateProps) {
   return (
-    <div className={`rounded-control border border-danger/30 bg-danger/5 p-6 ${className}`} role="alert">
+    <div
+      className={`rounded-control border border-danger/30 bg-danger/5 p-6 ${className}`}
+      role="alert"
+      aria-live="assertive"
+      aria-atomic="true"
+    >
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-start gap-3">
           <div className="h-10 w-10 rounded-full bg-danger/10 flex items-center justify-center flex-shrink-0">

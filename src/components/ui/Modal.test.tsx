@@ -137,4 +137,52 @@ describe('Modal behaviour (#797)', () => {
     const backdrop = screen.getByRole('dialog').previousElementSibling
     expect(backdrop?.tagName).toBe('BUTTON')
   })
+
+  it('locks body scroll while open and restores it after backdrop click (#118)', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+
+    function Harness() {
+      const [open, setOpen] = useState(true)
+      return (
+        <Modal isOpen={open} title="Scroll test" onClose={() => { setOpen(false); onClose() }}>
+          body
+        </Modal>
+      )
+    }
+
+    render(<Harness />)
+    expect(document.body.style.overflow).toBe('hidden')
+
+    const backdrop = screen.getByTestId('modal-backdrop')
+    await user.click(backdrop)
+
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(document.body.style.overflow).toBe('')
+  })
+
+  it('restores focus to the trigger after backdrop dismissal (#117)', async () => {
+    const user = userEvent.setup()
+
+    function Harness() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Open</button>
+          <Modal isOpen={open} title="Focus test" onClose={() => setOpen(false)}>
+            body
+          </Modal>
+        </>
+      )
+    }
+
+    render(<Harness />)
+    const trigger = screen.getByRole('button', { name: 'Open' })
+    await user.click(trigger)
+
+    const backdrop = screen.getByTestId('modal-backdrop')
+    await user.click(backdrop)
+
+    expect(trigger).toHaveFocus()
+  })
 })
