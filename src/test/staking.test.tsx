@@ -148,6 +148,7 @@ describe('UnstakeForm component (#941)', () => {
 
     await user.type(input, '25')
     await user.click(submitBtn)
+    await user.click(screen.getByTestId('unstake-confirm-btn'))
 
     await waitFor(() => {
       expect(onUnstake).toHaveBeenCalledWith('25')
@@ -156,6 +157,133 @@ describe('UnstakeForm component (#941)', () => {
         'Successfully unstaked 25 tokens!',
       )
     })
+  })
+})
+
+describe('UnstakeForm confirmation before signing (#143)', () => {
+  it('shows a readable summary of the consequences before starting a transaction', async () => {
+    const user = userEvent.setup()
+    const onUnstake = vi.fn().mockResolvedValue(undefined)
+
+    render(<UnstakeForm stakedBalance="100" unit="tokens" onUnstake={onUnstake} />)
+
+    await user.type(screen.getByTestId('unstake-amount-input'), '40')
+    await user.click(screen.getByTestId('unstake-submit-btn'))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm unstake' })
+    expect(dialog).toBeInTheDocument()
+
+    const confirmation = screen.getByTestId('unstake-confirmation')
+    expect(confirmation).toHaveTextContent('You are about to unstake 40 tokens.')
+    expect(confirmation).toHaveTextContent('Staked balance after unstaking: 60 tokens')
+    expect(confirmation).toHaveTextContent('Staking rewards stop accruing')
+    expect(confirmation).toHaveTextContent('cannot be cancelled once the transaction is signed')
+
+    // Asking for confirmation must not start the transaction on its own.
+    expect(onUnstake).not.toHaveBeenCalled()
+  })
+
+  it('does not start a transaction when the confirmation is cancelled', async () => {
+    const user = userEvent.setup()
+    const onUnstake = vi.fn().mockResolvedValue(undefined)
+    const onSuccess = vi.fn()
+    const onError = vi.fn()
+
+    render(
+      <UnstakeForm
+        stakedBalance="100"
+        unit="tokens"
+        onUnstake={onUnstake}
+        onSuccess={onSuccess}
+        onError={onError}
+      />,
+    )
+
+    await user.type(screen.getByTestId('unstake-amount-input'), '40')
+    await user.click(screen.getByTestId('unstake-submit-btn'))
+    await user.click(screen.getByTestId('unstake-cancel-btn'))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(onUnstake).not.toHaveBeenCalled()
+    expect(onSuccess).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('unstake-success-msg')).not.toBeInTheDocument()
+
+    // The amount survives cancellation so the user can review or re-submit it.
+    expect(screen.getByTestId('unstake-amount-input')).toHaveValue(40)
+  })
+
+  it('does not start a transaction when the confirmation is dismissed with Escape', async () => {
+    const user = userEvent.setup()
+    const onUnstake = vi.fn().mockResolvedValue(undefined)
+
+    render(<UnstakeForm stakedBalance="100" unit="tokens" onUnstake={onUnstake} />)
+
+    await user.type(screen.getByTestId('unstake-amount-input'), '30')
+    await user.click(screen.getByTestId('unstake-submit-btn'))
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(onUnstake).not.toHaveBeenCalled()
+  })
+
+  it('starts exactly one transaction after confirmation', async () => {
+    const user = userEvent.setup()
+    const onUnstake = vi.fn().mockResolvedValue(undefined)
+
+    render(<UnstakeForm stakedBalance="100" unit="tokens" onUnstake={onUnstake} />)
+
+    await user.type(screen.getByTestId('unstake-amount-input'), '75')
+    await user.click(screen.getByTestId('unstake-submit-btn'))
+    await user.click(screen.getByTestId('unstake-confirm-btn'))
+
+    await waitFor(() => {
+      expect(onUnstake).toHaveBeenCalledTimes(1)
+      expect(onUnstake).toHaveBeenCalledWith('75')
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  it('does not open the confirmation when the balance check fails', async () => {
+    const user = userEvent.setup()
+    const onUnstake = vi.fn().mockResolvedValue(undefined)
+
+    render(<UnstakeForm stakedBalance="50" unit="tokens" onUnstake={onUnstake} />)
+
+    await user.type(screen.getByTestId('unstake-amount-input'), '80')
+    await user.click(screen.getByTestId('unstake-submit-btn'))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Insufficient balance. You have 50 tokens, trying to unstake 80.',
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(onUnstake).not.toHaveBeenCalled()
+  })
+
+  it('reports the error and does not mark success when signing fails', async () => {
+    const user = userEvent.setup()
+    const onUnstake = vi.fn().mockRejectedValue(new Error('User rejected the signature'))
+    const onError = vi.fn()
+
+    render(
+      <UnstakeForm stakedBalance="100" unit="tokens" onUnstake={onUnstake} onError={onError} />,
+    )
+
+    await user.type(screen.getByTestId('unstake-amount-input'), '10')
+    await user.click(screen.getByTestId('unstake-submit-btn'))
+    await user.click(screen.getByTestId('unstake-confirm-btn'))
+
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledWith('User rejected the signature')
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent('User rejected the signature')
+    expect(screen.queryByTestId('unstake-success-msg')).not.toBeInTheDocument()
   })
 })
 
