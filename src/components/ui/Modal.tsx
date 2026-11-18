@@ -31,7 +31,7 @@ const FOCUSABLE_SELECTOR = [
 /**
  * Accessible dialog: closes on Escape or backdrop click, locks body scroll,
  * moves focus into the dialog on open, traps Tab/Shift+Tab inside it, and
- * returns focus to the trigger on close (#856).
+ * returns focus to the trigger on close (#856, #117, #118).
  */
 export default function Modal({
   isOpen,
@@ -48,7 +48,7 @@ export default function Modal({
   useEffect(() => {
     if (!isOpen) return
 
-    // Remember what had focus so it can be restored on close/unmount.
+    // Remember what had focus so it can be restored on close/unmount (#117).
     const previouslyFocused = document.activeElement as HTMLElement | null
 
     const getFocusable = (): HTMLElement[] => {
@@ -90,13 +90,16 @@ export default function Modal({
       }
     }
 
+    // Lock body scroll while the modal is open (#118).
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     document.addEventListener('keydown', handleKeyDown)
 
     return () => {
+      // Restore scroll on close or unmount (#118).
       document.body.style.overflow = previousOverflow
       document.removeEventListener('keydown', handleKeyDown)
+      // Restore focus to the element that opened the dialog (#117).
       previouslyFocused?.focus?.()
     }
   }, [isOpen, onClose])
@@ -106,11 +109,12 @@ export default function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4">
       {/* The backdrop is a real button so dismissal is keyboard/AT exposed and
-          the overlay is not an interactive `div` (#856). */}
+          the overlay is not an interactive `div` (#856, #117). */}
       <button
         type="button"
         onClick={onClose}
         aria-label="Close dialog"
+        data-testid="modal-backdrop"
         className="fixed inset-0 cursor-default bg-neutral-950/60"
       />
       <div

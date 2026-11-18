@@ -90,7 +90,7 @@ function ErrorBoundaryFallback({ error, onRetry }: { error: Error; onRetry: () =
         {showDetails && (
           <details className="mt-6">
             <summary className="mb-2 cursor-pointer text-caption-sm font-semibold">
-              Error details
+              Error details (development only — never shown in production)
             </summary>
             <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-control border border-line bg-surface-muted p-3 text-caption-sm">
               {error.stack ?? error.message}

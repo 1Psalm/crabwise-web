@@ -267,7 +267,14 @@ export default function MediaLightbox({
           <div className="font-semibold">{title}</div>
           {description ? <div className="text-white/60">{description}</div> : null}
         </div>
-        <div className="rounded-full border border-white/15 bg-black/20 px-3 py-1.5">
+        {/* aria-live announces the current position to screen readers when the
+            user navigates between images (#119). */}
+        <div
+          aria-live="polite"
+          aria-atomic="true"
+          className="rounded-full border border-white/15 bg-black/20 px-3 py-1.5"
+        >
+          <span className="sr-only">Image </span>
           {safeIndex + 1} / {normalizedImages.length}
         </div>
       </div>
