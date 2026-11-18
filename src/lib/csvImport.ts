@@ -186,6 +186,24 @@ export function sanitizeCsvCell(value: unknown): string {
 }
 
 /**
+ * Validates the header row before any data rows are processed. Rejects blank
+ * and duplicate column names so a malformed header never yields a partial import.
+ */
+export function validateCsvHeaders(headers: string[]): void {
+  const seen = new Set<string>()
+  headers.forEach((header, index) => {
+    const name = header.trim().toLowerCase()
+    if (name === '') {
+      throw new CsvValidationError(`Header in column ${index + 1} is empty.`)
+    }
+    if (seen.has(name)) {
+      throw new CsvValidationError(`Duplicate header "${header.trim()}" in column ${index + 1}.`)
+    }
+    seen.add(name)
+  })
+}
+
+/**
  * Parses, validates (row/column limits, header shape) and sanitizes a CSV
  * document in one step.
  */
@@ -214,6 +232,9 @@ export function parseAndValidateCsv(text: string, options: CsvImportOptions = {}
     throw new CsvValidationError(`This CSV has ${dataRowCount} rows; the maximum is ${maxRows}.`)
   }
 
+  const headers = headerRow.map(sanitizeCsvCell)
+  validateCsvHeaders(headers)
+
   const columnCount = headerRow.length
   const rows = rawRows.slice(1).map((cells, rowIndex) => {
     if (cells.length > maxColumns) {
@@ -229,11 +250,6 @@ export function parseAndValidateCsv(text: string, options: CsvImportOptions = {}
       sanitizeCsvCell(cells[columnIndex] ?? ''),
     )
   })
-
-  const headers = headerRow.map(sanitizeCsvCell)
-  if (headers.every((header) => header === '')) {
-    throw new CsvValidationError('The CSV header row is empty.')
-  }
 
   return { headers, rows }
 }

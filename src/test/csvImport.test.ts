@@ -7,6 +7,7 @@ import {
   parseCsv,
   sanitizeCsvCell,
   validateCsvFile,
+  validateCsvHeaders,
 } from '@/lib/csvImport'
 
 function csvFile(overrides: Partial<{ name: string; type: string; size: number }> = {}) {
@@ -125,5 +126,21 @@ describe('parseAndValidateCsv', () => {
   it('requires a header and at least one data row', () => {
     expect(() => parseAndValidateCsv('a,b')).toThrow(/at least one data row/i)
     expect(() => parseAndValidateCsv('a,b\n\n')).toThrow(/at least one data row/i)
+  })
+})
+
+describe('validateCsvHeaders', () => {
+  it('accepts unique, non-empty headers', () => {
+    expect(() => validateCsvHeaders(['title', 'description'])).not.toThrow()
+  })
+
+  it('rejects blank and duplicate headers', () => {
+    expect(() => validateCsvHeaders(['title', ' '])).toThrow(/column 2 is empty/i)
+    expect(() => validateCsvHeaders(['title', 'Title'])).toThrow(/duplicate header/i)
+  })
+
+  it('reports malformed headers before processing rows', () => {
+    expect(() => parseAndValidateCsv('a,a\n1,2,3')).toThrow(/duplicate header/i)
+    expect(() => parseAndValidateCsv('a,\n1,2')).toThrow(/column 2 is empty/i)
   })
 })
