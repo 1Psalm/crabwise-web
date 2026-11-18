@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import StakeForm from '@/components/StakeForm'
@@ -107,6 +107,117 @@ describe('StakeForm component (#941)', () => {
       expect(screen.getByTestId('stake-success-msg')).toHaveTextContent(
         'Successfully staked 40 tokens!',
       )
+    })
+  })
+})
+
+describe('StakeForm duplicate submission guard (#141)', () => {
+  /** Submits a form the way a rapid double click/Enter press would: twice in one tick. */
+  function submitTwice(form: HTMLFormElement) {
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+  }
+
+  it('initiates exactly one transaction when submitted twice before the first settles', async () => {
+    const user = userEvent.setup()
+    let resolveStake!: () => void
+    const onStake = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveStake = resolve
+        }),
+    )
+    const onSuccess = vi.fn()
+
+    render(
+      <StakeForm availableBalance="100" unit="tokens" onStake={onStake} onSuccess={onSuccess} />,
+    )
+
+    await user.type(screen.getByTestId('stake-amount-input'), '40')
+    const form = screen.getByTestId('stake-submit-btn').closest('form')
+    expect(form).not.toBeNull()
+    submitTwice(form as HTMLFormElement)
+
+    // The second submission must not start a second transaction.
+    expect(onStake).toHaveBeenCalledTimes(1)
+    expect(onStake).toHaveBeenCalledWith('40')
+
+    // The pending action is visible and the form cannot be edited or re-submitted.
+    const pending = screen.getByTestId('stake-pending-msg')
+    expect(pending).toHaveTextContent('Staking 40 tokens… transaction pending.')
+    expect(screen.getByTestId('stake-submit-btn')).toBeDisabled()
+    expect(screen.getByTestId('stake-submit-btn')).toHaveTextContent('Staking...')
+    expect(screen.getByTestId('stake-amount-input')).toBeDisabled()
+    expect(form).toHaveAttribute('aria-busy', 'true')
+
+    await act(async () => {
+      resolveStake()
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('stake-pending-msg')).not.toBeInTheDocument()
+      expect(screen.getByTestId('stake-success-msg')).toHaveTextContent(
+        'Successfully staked 40 tokens!',
+      )
+      expect(onSuccess).toHaveBeenCalledTimes(1)
+    })
+    expect(onStake).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('stake-submit-btn')).toBeEnabled()
+    expect(screen.getByTestId('stake-amount-input')).toBeEnabled()
+  })
+
+  it('surfaces the pending action while the transaction is in flight', async () => {
+    const user = userEvent.setup()
+    const onStake = vi.fn(() => new Promise<void>(() => {}))
+
+    render(<StakeForm availableBalance="100" unit="tokens" onStake={onStake} />)
+
+    await user.type(screen.getByTestId('stake-amount-input'), '25')
+    await user.click(screen.getByTestId('stake-submit-btn'))
+
+    expect(await screen.findByTestId('stake-pending-msg')).toHaveTextContent(
+      'Staking 25 tokens… transaction pending.',
+    )
+    expect(screen.getByTestId('stake-submit-btn')).toHaveAttribute('aria-busy', 'true')
+    expect(onStake).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases the guard after a failure so the user can retry', async () => {
+    const user = userEvent.setup()
+    const onStake = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('User rejected the signature'))
+      .mockResolvedValueOnce(undefined)
+    const onError = vi.fn()
+    const onSuccess = vi.fn()
+
+    render(
+      <StakeForm
+        availableBalance="100"
+        unit="tokens"
+        onStake={onStake}
+        onError={onError}
+        onSuccess={onSuccess}
+      />,
+    )
+
+    await user.type(screen.getByTestId('stake-amount-input'), '10')
+    await user.click(screen.getByTestId('stake-submit-btn'))
+
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledWith('User rejected the signature')
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent('User rejected the signature')
+    expect(screen.queryByTestId('stake-pending-msg')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('stake-success-msg')).not.toBeInTheDocument()
+    expect(onSuccess).not.toHaveBeenCalled()
+
+    await user.click(screen.getByTestId('stake-submit-btn'))
+
+    await waitFor(() => {
+      expect(onStake).toHaveBeenCalledTimes(2)
+      expect(onSuccess).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('stake-success-msg')).toBeInTheDocument()
     })
   })
 })
