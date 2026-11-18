@@ -17,6 +17,7 @@ export default function Spinner({ label, className }: SpinnerProps) {
     <span
       role={label ? 'status' : undefined}
       aria-label={label}
+      aria-live={label ? 'polite' : undefined}
       aria-hidden={label ? undefined : true}
       className={cn(
         'inline-block h-4 w-4 rounded-full border-2 border-current border-t-transparent',
