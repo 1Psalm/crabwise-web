@@ -25,6 +25,11 @@ const envSchema = z.object({
 export type StellarNetwork = z.infer<typeof stellarNetworkSchema>
 export type AppEnv = z.infer<typeof envSchema>
 
+/** Keeps Axios base URLs from producing a double slash before relative paths. */
+export function normalizeApiUrl(apiUrl: string): string {
+  return apiUrl.replace(/\/+$/, '') || apiUrl
+}
+
 const REQUIRED_KEYS = ['VITE_API_URL', 'VITE_STELLAR_NETWORK', 'VITE_APP_URL'] as const
 type EnvKey = (typeof REQUIRED_KEYS)[number]
 type FlagEnvKey = 'VITE_FF_MESSAGING' | 'VITE_FF_NOTIFICATIONS' | 'VITE_FF_ADVANCED_FILTERS'
@@ -128,7 +133,11 @@ function loadEnv(): EnvLoadResult {
 
   const validation = envSchema.safeParse(values)
   if (missing.length === 0 && !apiUrlIssue && validation.success) {
-    return { env: validation.data, configError: null, invalidKeys: [] }
+    return {
+      env: { ...validation.data, VITE_API_URL: normalizeApiUrl(validation.data.VITE_API_URL) },
+      configError: null,
+      invalidKeys: [],
+    }
   }
 
   const details = [

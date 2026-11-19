@@ -12,8 +12,21 @@ import {
   setTokenRefresher,
   setUnauthorizedHandler,
 } from './http'
+import { normalizeApiUrl } from '@/config/env'
 
 let token: string | null
+
+describe('API URL configuration', () => {
+  it('removes trailing slashes while preserving the URL origin', () => {
+    expect(normalizeApiUrl('https://api.example.com/')).toBe('https://api.example.com')
+    expect(normalizeApiUrl('https://api.example.com///')).toBe('https://api.example.com')
+    expect(normalizeApiUrl('https://api.example.com')).toBe('https://api.example.com')
+  })
+
+  it('does not turn a root URL into an empty base', () => {
+    expect(normalizeApiUrl('https://')).toBe('https://')
+  })
+})
 
 /** Fake server: accepts only `Bearer new`, answers 401 otherwise. */
 const adapter: AxiosAdapter = async (config) => {
