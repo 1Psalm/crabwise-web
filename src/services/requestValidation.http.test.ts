@@ -28,7 +28,7 @@ beforeEach(() => {
   resetRateLimitsForTests()
 })
 
-describe('HTTP request validation (#987)', () => {
+describe('HTTP request validation (#147)', () => {
   it('sends safe requests through to the adapter', async () => {
     await expect(http.get('/profiles/elena_art', { adapter })).resolves.toBe('ok')
     expect(adapterCalls).toBe(1)
@@ -40,6 +40,12 @@ describe('HTTP request validation (#987)', () => {
       code: 'VALIDATION_FAILED',
     })
     await expect(http.get('/profiles/../../etc/passwd', { adapter })).rejects.toMatchObject({
+      status: 400,
+      code: 'VALIDATION_FAILED',
+    })
+    await expect(
+      http.post('/profiles/..%2F..%2Fetc%2Fpasswd', {}, { adapter }),
+    ).rejects.toMatchObject({
       status: 400,
       code: 'VALIDATION_FAILED',
     })
