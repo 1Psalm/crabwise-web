@@ -7,3 +7,15 @@ export const NAV_FOCUS_CLASSES =
 
 export const NAV_LINK_BASE =
   `text-caption font-semibold text-muted transition-colors hover:text-foreground ${NAV_FOCUS_CLASSES}`
+
+export const NAV_CURRENT_CLASSES =
+  'text-foreground underline decoration-primary decoration-2 underline-offset-4'
+
+export function isNavItemCurrent(pathname: string, to: string) {
+  const currentPath = pathname === '/' ? '/' : pathname.replace(/\/+$/, '')
+  const targetPathname = to.split(/[?#]/, 1)[0]
+  const targetPath =
+    targetPathname === '/' ? '/' : targetPathname.replace(/\/+$/, '')
+
+  return currentPath === targetPath
+}
