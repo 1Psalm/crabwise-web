@@ -222,6 +222,79 @@ describe('StakeForm duplicate submission guard (#141)', () => {
   })
 })
 
+describe('StakeForm API error handling', () => {
+  it('preserves the amount after a staking API error so the user can correct or retry without re-entering', async () => {
+    const user = userEvent.setup()
+    const onStake = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValueOnce(undefined)
+    const onError = vi.fn()
+    const onSuccess = vi.fn()
+
+    render(
+      <StakeForm
+        availableBalance="100"
+        unit="tokens"
+        onStake={onStake}
+        onError={onError}
+        onSuccess={onSuccess}
+      />,
+    )
+
+    const input = screen.getByTestId('stake-amount-input')
+    await user.type(input, '40')
+    await user.click(screen.getByTestId('stake-submit-btn'))
+
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledWith('Network error')
+      expect(screen.getByRole('alert')).toHaveTextContent('Network error')
+    })
+    expect(input).toHaveValue(40)
+
+    // Correct the amount and submit again without re-entering from scratch.
+    await user.clear(input)
+    await user.type(input, '30')
+    await user.click(screen.getByTestId('stake-submit-btn'))
+
+    await waitFor(() => {
+      expect(onStake).toHaveBeenNthCalledWith(1, '40')
+      expect(onStake).toHaveBeenNthCalledWith(2, '30')
+      expect(onSuccess).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('stake-success-msg')).toBeInTheDocument()
+    })
+    expect(input).toHaveValue(30)
+  })
+
+  it('allows retrying with the same amount after a staking API error', async () => {
+    const user = userEvent.setup()
+    const onStake = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValueOnce(undefined)
+
+    render(<StakeForm availableBalance="100" unit="tokens" onStake={onStake} />)
+
+    const input = screen.getByTestId('stake-amount-input')
+    await user.type(input, '25')
+    await user.click(screen.getByTestId('stake-submit-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Network error')
+    })
+    expect(input).toHaveValue(25)
+
+    await user.click(screen.getByTestId('stake-submit-btn'))
+
+    await waitFor(() => {
+      expect(onStake).toHaveBeenCalledTimes(2)
+      expect(onStake).toHaveBeenNthCalledWith(1, '25')
+      expect(onStake).toHaveBeenNthCalledWith(2, '25')
+      expect(screen.getByTestId('stake-success-msg')).toBeInTheDocument()
+    })
+  })
+})
+
 describe('UnstakeForm component (#941)', () => {
   it('renders staked balance and validates unstake amounts', async () => {
     const user = userEvent.setup()
