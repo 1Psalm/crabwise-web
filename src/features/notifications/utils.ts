@@ -1,3 +1,4 @@
+import { formatShortDate } from '@/lib'
 import type { Notification, NotificationType, Paginated } from '@/types'
 import { notificationStatusMeta, type StatusMeta } from '@/lib/status'
 import type { NotificationFilters } from './queryKeys'
@@ -244,3 +245,39 @@ export function emptyPage(filters: NotificationFilters = {}): Paginated<Notifica
 }
 
 export const DEFAULT_PAGE_SIZE = 20
+
+const MINUTE_MS = 60_000
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
+
+/** Past this age a timestamp reads as a calendar date instead of `Nd ago`. */
+const RELATIVE_CUTOFF_MS = 7 * DAY_MS
+
+/**
+ * Renders a notification's `createdAt` for an inbox row.
+ *
+ * Recent entries read as an age (`3m ago`), which is what a notification inbox
+ * needs, and anything older than a week falls back to the shared
+ * `formatShortDate`, so a date looks identical wherever it is rendered.
+ *
+ * An unparseable timestamp returns an empty string. A row must never print
+ * `Invalid Date`, and omitting the time is less misleading than inventing one.
+ * The `instanceof` check also covers entries restored from a persisted cache,
+ * where `createdAt` can arrive as a string despite the model's type.
+ *
+ * `now` is injected so the output is deterministic in tests and so a row can
+ * re-derive its label when the tab has been open for a while.
+ */
+export function formatNotificationTime(createdAt: Date, now: Date = new Date()): string {
+  if (!(createdAt instanceof Date) || Number.isNaN(createdAt.getTime())) return ''
+
+  const ageMs = now.getTime() - createdAt.getTime()
+
+  // Clock skew (a server timestamp slightly ahead of the client) is not a
+  // future event worth labelling, so it renders as the newest entry.
+  if (ageMs < MINUTE_MS) return 'Just now'
+  if (ageMs < HOUR_MS) return `${Math.floor(ageMs / MINUTE_MS)}m ago`
+  if (ageMs < DAY_MS) return `${Math.floor(ageMs / HOUR_MS)}h ago`
+  if (ageMs < RELATIVE_CUTOFF_MS) return `${Math.floor(ageMs / DAY_MS)}d ago`
+  return formatShortDate(createdAt.toISOString())
+}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { notificationStatusMeta } from '@/lib/status'
+import { formatShortDate } from '@/lib'
 import type { Notification, NotificationType, Paginated } from '@/types'
 import {
   DEFAULT_PAGE_SIZE,
@@ -15,6 +16,7 @@ import {
   emptyPage,
   filterNotifications,
   isNotificationKind,
+  formatNotificationTime,
   matchesFilters,
   mergePage,
   notificationKind,
@@ -358,5 +360,60 @@ describe('emptyPage', () => {
   it('falls back to the default page size', () => {
     expect(emptyPage().pageSize).toBe(DEFAULT_PAGE_SIZE)
     expect(emptyPage().page).toBe(1)
+  })
+})
+
+describe('formatNotificationTime', () => {
+  const now = new Date('2026-11-22T12:00:00.000Z')
+  const before = (milliseconds: number): Date => new Date(now.getTime() - milliseconds)
+
+  const MINUTE = 60_000
+  const HOUR = 60 * MINUTE
+  const DAY = 24 * HOUR
+
+  it('labels anything under a minute old, and clock skew, as just now', () => {
+    expect(formatNotificationTime(before(0), now)).toBe('Just now')
+    expect(formatNotificationTime(before(MINUTE - 1), now)).toBe('Just now')
+    expect(formatNotificationTime(before(-5 * MINUTE), now)).toBe('Just now')
+  })
+
+  it('renders whole minutes under an hour', () => {
+    expect(formatNotificationTime(before(MINUTE), now)).toBe('1m ago')
+    expect(formatNotificationTime(before(HOUR - 1), now)).toBe('59m ago')
+  })
+
+  it('renders whole hours under a day', () => {
+    expect(formatNotificationTime(before(HOUR), now)).toBe('1h ago')
+    expect(formatNotificationTime(before(DAY - MINUTE), now)).toBe('23h ago')
+  })
+
+  it('renders whole days under a week', () => {
+    expect(formatNotificationTime(before(DAY), now)).toBe('1d ago')
+    expect(formatNotificationTime(before(7 * DAY - 1), now)).toBe('6d ago')
+  })
+
+  it('falls back to the shared short date at a week and beyond', () => {
+    expect(formatNotificationTime(before(7 * DAY), now)).toBe(
+      formatShortDate(before(7 * DAY).toISOString()),
+    )
+    expect(formatNotificationTime(before(400 * DAY), now)).toBe(
+      formatShortDate(before(400 * DAY).toISOString()),
+    )
+  })
+
+  it('never renders Invalid Date for a timestamp it cannot parse', () => {
+    const result = formatNotificationTime(new Date('not-a-date'), now)
+
+    expect(result).toBe('')
+    expect(result).not.toMatch(/invalid/i)
+  })
+
+  it('treats a non-Date value from a persisted cache as unparseable', () => {
+    expect(formatNotificationTime('2026-11-22T12:00:00.000Z' as unknown as Date, now)).toBe('')
+  })
+
+  it('is stable for the same timestamp and reference time', () => {
+    const createdAt = before(3 * HOUR)
+    expect(formatNotificationTime(createdAt, now)).toBe(formatNotificationTime(createdAt, now))
   })
 })

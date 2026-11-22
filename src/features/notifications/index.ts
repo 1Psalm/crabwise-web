@@ -31,6 +31,7 @@ export {
   emptyPage,
   filterNotifications,
   isNotificationKind,
+  formatNotificationTime,
   matchesFilters,
   mergePage,
   normalizeUnreadCount,
