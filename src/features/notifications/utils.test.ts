@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { notificationStatusMeta } from '@/lib/status'
 import { formatShortDate } from '@/lib'
 import type { Notification, NotificationType, Paginated } from '@/types'
 import {
   DEFAULT_PAGE_SIZE,
+  FALLBACK_NOTIFICATION_KIND,
   NOTIFICATION_KINDS,
   NOTIFICATION_KIND_LABELS,
   UNREAD_POLL_INTERVAL_MS,
@@ -13,9 +15,15 @@ import {
   dedupeById,
   emptyPage,
   filterNotifications,
+  isNotificationKind,
   formatNotificationTime,
   matchesFilters,
   mergePage,
+  notificationKind,
+  notificationKindMeta,
+  notificationTarget,
+  normalizeUnreadCount,
+  unreadBadgeLabel,
   unreadIds,
 } from './utils'
 
@@ -60,6 +68,64 @@ describe('notification kind metadata', () => {
       expect(NOTIFICATION_KIND_LABELS[kind]).toBeTruthy()
     }
   })
+
+  it('takes its labels from the shared status metadata', () => {
+    for (const kind of NOTIFICATION_KINDS) {
+      expect(NOTIFICATION_KIND_LABELS[kind]).toBe(notificationStatusMeta(kind).label)
+      expect(notificationStatusMeta(kind).className).not.toBe('')
+    }
+  })
+})
+
+describe('notification kind fallbacks', () => {
+  it('recognises every supported kind', () => {
+    for (const kind of NOTIFICATION_KINDS) expect(isNotificationKind(kind)).toBe(true)
+  })
+
+  it('rejects values the API could add before the client supports them', () => {
+    for (const value of ['badge', 'ORDER', '', null, undefined, 42, ['order'], { type: 'order' }]) {
+      expect(isNotificationKind(value)).toBe(false)
+    }
+  })
+
+  it('narrows an unknown kind to the fallback instead of leaking it through', () => {
+    expect(notificationKind('badge')).toBe(FALLBACK_NOTIFICATION_KIND)
+    expect(notificationKind(undefined)).toBe(FALLBACK_NOTIFICATION_KIND)
+    expect(notificationKind('review')).toBe('review')
+  })
+
+  it('gives an unknown kind readable metadata rather than undefined', () => {
+    const meta = notificationKindMeta('badge')
+    expect(meta).toEqual(notificationStatusMeta(FALLBACK_NOTIFICATION_KIND))
+    expect(meta.label).toBeTruthy()
+    expect(meta.className).not.toBe('')
+  })
+})
+
+describe('notificationTarget', () => {
+  it('follows an in-app path', () => {
+    expect(notificationTarget({ type: 'order', link: '/orders/42' })).toBe('/orders/42')
+  })
+
+  it('has no target when the notification has no link', () => {
+    expect(notificationTarget({ type: 'system', link: null })).toBeNull()
+    expect(notificationTarget({ type: 'system', link: '   ' })).toBeNull()
+  })
+
+  it('refuses external and protocol-relative destinations', () => {
+    for (const link of [
+      'https://evil.example/path',
+      '//evil.example/path',
+      'javascript:alert(1)',
+      'orders/42',
+    ]) {
+      expect(notificationTarget({ type: 'order', link })).toBeNull()
+    }
+  })
+
+  it('has no target for an unknown kind even when a link is present', () => {
+    expect(notificationTarget({ type: 'badge' as NotificationType, link: '/orders/42' })).toBeNull()
+  })
 })
 
 describe('countUnread', () => {
@@ -75,6 +141,33 @@ describe('countUnread', () => {
 
   it('is zero for an empty list', () => {
     expect(countUnread([])).toBe(0)
+  })
+})
+
+describe('unread badge counts', () => {
+  it('normalizes raw totals to non-negative integers', () => {
+    expect(normalizeUnreadCount(-3)).toBe(0)
+    expect(normalizeUnreadCount(2.9)).toBe(2)
+    expect(normalizeUnreadCount('4')).toBe(4)
+    expect(normalizeUnreadCount(Number.NaN)).toBe(0)
+    expect(normalizeUnreadCount(undefined)).toBe(0)
+  })
+
+  it('never renders a badge for zero', () => {
+    expect(unreadBadgeLabel(0)).toBeNull()
+    expect(unreadBadgeLabel(-1)).toBeNull()
+    expect(unreadBadgeLabel(Number.POSITIVE_INFINITY)).toBeNull()
+  })
+
+  it('renders the normalized integer for a real count', () => {
+    expect(unreadBadgeLabel(7)).toBe('7')
+    expect(unreadBadgeLabel(7.8)).toBe('7')
+  })
+
+  it('counts unread notifications as a non-negative integer', () => {
+    const count = countUnread([makeNotification({ id: 'a' }), makeNotification({ id: 'b' })])
+    expect(Number.isInteger(count)).toBe(true)
+    expect(count).toBeGreaterThanOrEqual(0)
   })
 })
 

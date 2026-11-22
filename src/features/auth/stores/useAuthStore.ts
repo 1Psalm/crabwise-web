@@ -3,6 +3,30 @@ import { persist } from 'zustand/middleware'
 import { invalidateSession, rotateSession } from '@/lib/session'
 import type { AuthSession, AuthTokens, SessionStatus, User } from '../types'
 
+type SessionResetListener = () => void
+
+const sessionResetListeners = new Set<SessionResetListener>()
+
+/**
+ * Registers a cleanup that must run when a session ends or a different user
+ * signs in.
+ *
+ * Feature caches (notifications, drafts, optimistic writes) belong to the
+ * signed-in user, so they have to be dropped at the session boundary. The store
+ * does not import those features; they register here instead. Returns an
+ * unsubscribe function.
+ */
+export function onSessionReset(listener: SessionResetListener): () => void {
+  sessionResetListeners.add(listener)
+  return () => {
+    sessionResetListeners.delete(listener)
+  }
+}
+
+function runSessionReset(): void {
+  for (const listener of sessionResetListeners) listener()
+}
+
 interface PersistedAuth {
   accessToken: string | null
   refreshToken: string | null
@@ -48,6 +72,9 @@ export const useAuthStore = create<AuthStoreState>()(
       error: null,
       startLoading: () => set({ status: 'loading', error: null }),
       setSession: ({ tokens, user }) => {
+        // Anything cached for a previous (or signed-out) session belongs to a
+        // different user and must not survive the sign-in.
+        runSessionReset()
         // Sign-in always starts a new session; any pre-authentication identifier
         // is invalidated so it cannot be fixated and reused (#986).
         rotateSession()
@@ -67,6 +94,9 @@ export const useAuthStore = create<AuthStoreState>()(
       },
       setUser: (user) => set({ user, status: 'authenticated', error: null }),
       clearSession: (error = null) => {
+        // Drop user-scoped caches as the first step, so nothing from this
+        // session can render for the next visitor of the signed-out app.
+        runSessionReset()
         invalidateSession()
         set({
           accessToken: null,
