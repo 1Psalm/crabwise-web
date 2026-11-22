@@ -5,6 +5,8 @@
  * This barrel is the feature's public API; everything else stays private.
  */
 export {
+  NOTIFICATION_ACTION_FOCUS_CLASSES,
+  notificationActions,
   notificationErrorState,
   useMarkAllNotificationsRead,
   useNotifications,
@@ -31,8 +33,10 @@ export {
   isNotificationKind,
   matchesFilters,
   mergePage,
+  normalizeUnreadCount,
   notificationKind,
   notificationKindMeta,
   notificationTarget,
+  unreadBadgeLabel,
   unreadIds,
 } from './utils'

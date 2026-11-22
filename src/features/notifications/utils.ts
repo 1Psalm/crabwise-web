@@ -73,9 +73,36 @@ export function notificationTarget(
   return link
 }
 
-/** Number of unread notifications in a list. */
+/** Number of unread notifications in a list. Never negative. */
 export function countUnread(notifications: readonly Notification[]): number {
-  return notifications.reduce((total, notification) => (notification.read ? total : total + 1), 0)
+  const total = notifications.reduce(
+    (count, notification) => (notification.read ? count : count + 1),
+    0,
+  )
+  return Math.max(0, Math.trunc(total))
+}
+
+/**
+ * Normalizes a raw unread total to a safe non-negative integer.
+ *
+ * The badge renders a number from a server payload or an optimistic delta, so
+ * a `NaN`, a negative value or a fraction must never reach the DOM.
+ */
+export function normalizeUnreadCount(count: unknown): number {
+  const value = typeof count === 'number' ? count : Number(count)
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.trunc(value))
+}
+
+/**
+ * Badge text for an unread total, or `null` when there is nothing to show.
+ *
+ * Returning `null` instead of `'0'` keeps a zero count from rendering as a
+ * badge, which would read as an unread item that does not exist.
+ */
+export function unreadBadgeLabel(count: unknown): string | null {
+  const value = normalizeUnreadCount(count)
+  return value === 0 ? null : String(value)
 }
 
 /**

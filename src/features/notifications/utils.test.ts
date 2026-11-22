@@ -20,6 +20,8 @@ import {
   notificationKind,
   notificationKindMeta,
   notificationTarget,
+  normalizeUnreadCount,
+  unreadBadgeLabel,
   unreadIds,
 } from './utils'
 
@@ -137,6 +139,33 @@ describe('countUnread', () => {
 
   it('is zero for an empty list', () => {
     expect(countUnread([])).toBe(0)
+  })
+})
+
+describe('unread badge counts', () => {
+  it('normalizes raw totals to non-negative integers', () => {
+    expect(normalizeUnreadCount(-3)).toBe(0)
+    expect(normalizeUnreadCount(2.9)).toBe(2)
+    expect(normalizeUnreadCount('4')).toBe(4)
+    expect(normalizeUnreadCount(Number.NaN)).toBe(0)
+    expect(normalizeUnreadCount(undefined)).toBe(0)
+  })
+
+  it('never renders a badge for zero', () => {
+    expect(unreadBadgeLabel(0)).toBeNull()
+    expect(unreadBadgeLabel(-1)).toBeNull()
+    expect(unreadBadgeLabel(Number.POSITIVE_INFINITY)).toBeNull()
+  })
+
+  it('renders the normalized integer for a real count', () => {
+    expect(unreadBadgeLabel(7)).toBe('7')
+    expect(unreadBadgeLabel(7.8)).toBe('7')
+  })
+
+  it('counts unread notifications as a non-negative integer', () => {
+    const count = countUnread([makeNotification({ id: 'a' }), makeNotification({ id: 'b' })])
+    expect(Number.isInteger(count)).toBe(true)
+    expect(count).toBeGreaterThanOrEqual(0)
   })
 })
 
