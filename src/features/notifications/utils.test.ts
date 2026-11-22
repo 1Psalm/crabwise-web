@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { notificationStatusMeta } from '@/lib/status'
+import { formatShortDate } from '@/lib'
 import type { Notification, NotificationType, Paginated } from '@/types'
 import {
   DEFAULT_PAGE_SIZE,
+  FALLBACK_NOTIFICATION_KIND,
   NOTIFICATION_KINDS,
   NOTIFICATION_KIND_LABELS,
   UNREAD_POLL_INTERVAL_MS,
@@ -12,8 +15,15 @@ import {
   dedupeById,
   emptyPage,
   filterNotifications,
+  isNotificationKind,
+  formatNotificationTime,
   matchesFilters,
   mergePage,
+  notificationKind,
+  notificationKindMeta,
+  notificationTarget,
+  normalizeUnreadCount,
+  unreadBadgeLabel,
   unreadIds,
 } from './utils'
 
@@ -30,8 +40,18 @@ function makeNotification(overrides: Partial<Notification> = {}): Notification {
   }
 }
 
-function page(items: Notification[], overrides: Partial<Paginated<Notification>> = {}): Paginated<Notification> {
-  return { items, page: 1, pageSize: DEFAULT_PAGE_SIZE, total: items.length, hasNextPage: false, ...overrides }
+function page(
+  items: Notification[],
+  overrides: Partial<Paginated<Notification>> = {},
+): Paginated<Notification> {
+  return {
+    items,
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    total: items.length,
+    hasNextPage: false,
+    ...overrides,
+  }
 }
 
 describe('notification kind metadata', () => {
@@ -48,6 +68,64 @@ describe('notification kind metadata', () => {
       expect(NOTIFICATION_KIND_LABELS[kind]).toBeTruthy()
     }
   })
+
+  it('takes its labels from the shared status metadata', () => {
+    for (const kind of NOTIFICATION_KINDS) {
+      expect(NOTIFICATION_KIND_LABELS[kind]).toBe(notificationStatusMeta(kind).label)
+      expect(notificationStatusMeta(kind).className).not.toBe('')
+    }
+  })
+})
+
+describe('notification kind fallbacks', () => {
+  it('recognises every supported kind', () => {
+    for (const kind of NOTIFICATION_KINDS) expect(isNotificationKind(kind)).toBe(true)
+  })
+
+  it('rejects values the API could add before the client supports them', () => {
+    for (const value of ['badge', 'ORDER', '', null, undefined, 42, ['order'], { type: 'order' }]) {
+      expect(isNotificationKind(value)).toBe(false)
+    }
+  })
+
+  it('narrows an unknown kind to the fallback instead of leaking it through', () => {
+    expect(notificationKind('badge')).toBe(FALLBACK_NOTIFICATION_KIND)
+    expect(notificationKind(undefined)).toBe(FALLBACK_NOTIFICATION_KIND)
+    expect(notificationKind('review')).toBe('review')
+  })
+
+  it('gives an unknown kind readable metadata rather than undefined', () => {
+    const meta = notificationKindMeta('badge')
+    expect(meta).toEqual(notificationStatusMeta(FALLBACK_NOTIFICATION_KIND))
+    expect(meta.label).toBeTruthy()
+    expect(meta.className).not.toBe('')
+  })
+})
+
+describe('notificationTarget', () => {
+  it('follows an in-app path', () => {
+    expect(notificationTarget({ type: 'order', link: '/orders/42' })).toBe('/orders/42')
+  })
+
+  it('has no target when the notification has no link', () => {
+    expect(notificationTarget({ type: 'system', link: null })).toBeNull()
+    expect(notificationTarget({ type: 'system', link: '   ' })).toBeNull()
+  })
+
+  it('refuses external and protocol-relative destinations', () => {
+    for (const link of [
+      'https://evil.example/path',
+      '//evil.example/path',
+      'javascript:alert(1)',
+      'orders/42',
+    ]) {
+      expect(notificationTarget({ type: 'order', link })).toBeNull()
+    }
+  })
+
+  it('has no target for an unknown kind even when a link is present', () => {
+    expect(notificationTarget({ type: 'badge' as NotificationType, link: '/orders/42' })).toBeNull()
+  })
 })
 
 describe('countUnread', () => {
@@ -63,6 +141,33 @@ describe('countUnread', () => {
 
   it('is zero for an empty list', () => {
     expect(countUnread([])).toBe(0)
+  })
+})
+
+describe('unread badge counts', () => {
+  it('normalizes raw totals to non-negative integers', () => {
+    expect(normalizeUnreadCount(-3)).toBe(0)
+    expect(normalizeUnreadCount(2.9)).toBe(2)
+    expect(normalizeUnreadCount('4')).toBe(4)
+    expect(normalizeUnreadCount(Number.NaN)).toBe(0)
+    expect(normalizeUnreadCount(undefined)).toBe(0)
+  })
+
+  it('never renders a badge for zero', () => {
+    expect(unreadBadgeLabel(0)).toBeNull()
+    expect(unreadBadgeLabel(-1)).toBeNull()
+    expect(unreadBadgeLabel(Number.POSITIVE_INFINITY)).toBeNull()
+  })
+
+  it('renders the normalized integer for a real count', () => {
+    expect(unreadBadgeLabel(7)).toBe('7')
+    expect(unreadBadgeLabel(7.8)).toBe('7')
+  })
+
+  it('counts unread notifications as a non-negative integer', () => {
+    const count = countUnread([makeNotification({ id: 'a' }), makeNotification({ id: 'b' })])
+    expect(Number.isInteger(count)).toBe(true)
+    expect(count).toBeGreaterThanOrEqual(0)
   })
 })
 
@@ -97,7 +202,11 @@ describe('dedupeById', () => {
 describe('mergePage', () => {
   it('never produces a duplicate after a refetch', () => {
     const cached = [makeNotification({ id: 'a' }), makeNotification({ id: 'b' })]
-    const refetched = [makeNotification({ id: 'a' }), makeNotification({ id: 'b' }), makeNotification({ id: 'c' })]
+    const refetched = [
+      makeNotification({ id: 'a' }),
+      makeNotification({ id: 'b' }),
+      makeNotification({ id: 'c' }),
+    ]
 
     const result = mergePage(cached, refetched)
     expect(result).toHaveLength(3)
@@ -119,7 +228,11 @@ describe('mergePage', () => {
 
 describe('applyReadState', () => {
   it('marks the listed ids and leaves the rest untouched', () => {
-    const list = [makeNotification({ id: 'a' }), makeNotification({ id: 'b' }), makeNotification({ id: 'c', read: true })]
+    const list = [
+      makeNotification({ id: 'a' }),
+      makeNotification({ id: 'b' }),
+      makeNotification({ id: 'c', read: true }),
+    ]
     const result = applyReadState(list, ['a', 'c'], true)
 
     expect(result.map((n) => n.read)).toEqual([true, false, true])
@@ -204,7 +317,10 @@ describe('filtering', () => {
   })
 
   it('narrows by kind', () => {
-    expect(filterNotifications(list, { types: ['order', 'system'] }).map((n) => n.id)).toEqual(['a', 'c'])
+    expect(filterNotifications(list, { types: ['order', 'system'] }).map((n) => n.id)).toEqual([
+      'a',
+      'c',
+    ])
   })
 
   it('narrows by read state', () => {
@@ -213,7 +329,9 @@ describe('filtering', () => {
   })
 
   it('combines kind and read state', () => {
-    expect(filterNotifications(list, { types: ['message'], read: true }).map((n) => n.id)).toEqual(['b'])
+    expect(filterNotifications(list, { types: ['message'], read: true }).map((n) => n.id)).toEqual([
+      'b',
+    ])
   })
 
   it('treats an empty type list as "every kind"', () => {
@@ -242,5 +360,60 @@ describe('emptyPage', () => {
   it('falls back to the default page size', () => {
     expect(emptyPage().pageSize).toBe(DEFAULT_PAGE_SIZE)
     expect(emptyPage().page).toBe(1)
+  })
+})
+
+describe('formatNotificationTime', () => {
+  const now = new Date('2026-11-22T12:00:00.000Z')
+  const before = (milliseconds: number): Date => new Date(now.getTime() - milliseconds)
+
+  const MINUTE = 60_000
+  const HOUR = 60 * MINUTE
+  const DAY = 24 * HOUR
+
+  it('labels anything under a minute old, and clock skew, as just now', () => {
+    expect(formatNotificationTime(before(0), now)).toBe('Just now')
+    expect(formatNotificationTime(before(MINUTE - 1), now)).toBe('Just now')
+    expect(formatNotificationTime(before(-5 * MINUTE), now)).toBe('Just now')
+  })
+
+  it('renders whole minutes under an hour', () => {
+    expect(formatNotificationTime(before(MINUTE), now)).toBe('1m ago')
+    expect(formatNotificationTime(before(HOUR - 1), now)).toBe('59m ago')
+  })
+
+  it('renders whole hours under a day', () => {
+    expect(formatNotificationTime(before(HOUR), now)).toBe('1h ago')
+    expect(formatNotificationTime(before(DAY - MINUTE), now)).toBe('23h ago')
+  })
+
+  it('renders whole days under a week', () => {
+    expect(formatNotificationTime(before(DAY), now)).toBe('1d ago')
+    expect(formatNotificationTime(before(7 * DAY - 1), now)).toBe('6d ago')
+  })
+
+  it('falls back to the shared short date at a week and beyond', () => {
+    expect(formatNotificationTime(before(7 * DAY), now)).toBe(
+      formatShortDate(before(7 * DAY).toISOString()),
+    )
+    expect(formatNotificationTime(before(400 * DAY), now)).toBe(
+      formatShortDate(before(400 * DAY).toISOString()),
+    )
+  })
+
+  it('never renders Invalid Date for a timestamp it cannot parse', () => {
+    const result = formatNotificationTime(new Date('not-a-date'), now)
+
+    expect(result).toBe('')
+    expect(result).not.toMatch(/invalid/i)
+  })
+
+  it('treats a non-Date value from a persisted cache as unparseable', () => {
+    expect(formatNotificationTime('2026-11-22T12:00:00.000Z' as unknown as Date, now)).toBe('')
+  })
+
+  it('is stable for the same timestamp and reference time', () => {
+    const createdAt = before(3 * HOUR)
+    expect(formatNotificationTime(createdAt, now)).toBe(formatNotificationTime(createdAt, now))
   })
 })

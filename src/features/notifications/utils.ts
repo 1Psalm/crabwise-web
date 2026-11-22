@@ -1,4 +1,6 @@
+import { formatShortDate } from '@/lib'
 import type { Notification, NotificationType, Paginated } from '@/types'
+import { notificationStatusMeta, type StatusMeta } from '@/lib/status'
 import type { NotificationFilters } from './queryKeys'
 
 /**
@@ -21,19 +23,87 @@ export const NOTIFICATION_KINDS: readonly NotificationType[] = [
   'system',
 ] as const
 
-/** Per-kind label and grouping, so surfaces do not each invent their own copy. */
-export const NOTIFICATION_KIND_LABELS: Record<NotificationType, string> = {
-  order: 'Orders',
-  commission: 'Commissions',
-  payment: 'Payments',
-  review: 'Reviews',
-  message: 'Messages',
-  system: 'System',
+/**
+ * Per-kind label, so surfaces do not each invent their own copy.
+ *
+ * Derived from `src/lib/status.ts` instead of duplicated here: the filter UI,
+ * the badge and any list row all read the same label for the same kind.
+ */
+export const NOTIFICATION_KIND_LABELS = Object.fromEntries(
+  NOTIFICATION_KINDS.map((kind) => [kind, notificationStatusMeta(kind).label]),
+) as Record<NotificationType, string>
+
+/** Kind used when the wire value is missing or not one this build knows. */
+export const FALLBACK_NOTIFICATION_KIND: NotificationType = 'system'
+
+/** Whether a value is a notification kind this build can render. */
+export function isNotificationKind(value: unknown): value is NotificationType {
+  return typeof value === 'string' && (NOTIFICATION_KINDS as readonly string[]).includes(value)
 }
 
-/** Number of unread notifications in a list. */
+/**
+ * Narrows an unknown notification kind to a supported one.
+ *
+ * The API can add a kind before the client ships support for it; rendering the
+ * fallback keeps an unknown value from reaching a lookup that would return
+ * `undefined` and crash the row.
+ */
+export function notificationKind(value: unknown): NotificationType {
+  return isNotificationKind(value) ? value : FALLBACK_NOTIFICATION_KIND
+}
+
+/** Status pill metadata for a notification, safe for unknown wire values. */
+export function notificationKindMeta(value: unknown): StatusMeta {
+  return notificationStatusMeta(notificationKind(value))
+}
+
+/**
+ * Navigation target for a notification, or `null` when there is nowhere safe
+ * to go.
+ *
+ * Only same-app absolute paths are followed: an unknown kind, a missing link,
+ * an external URL or a protocol-relative `//host` path all resolve to `null`
+ * rather than navigating a notification to an unintended destination.
+ */
+export function notificationTarget(
+  notification: Pick<Notification, 'type' | 'link'>,
+): string | null {
+  if (!isNotificationKind(notification.type)) return null
+  const link = notification.link?.trim()
+  if (!link || !link.startsWith('/') || link.startsWith('//')) return null
+  return link
+}
+
+/** Number of unread notifications in a list. Never negative. */
 export function countUnread(notifications: readonly Notification[]): number {
-  return notifications.reduce((total, notification) => (notification.read ? total : total + 1), 0)
+  const total = notifications.reduce(
+    (count, notification) => (notification.read ? count : count + 1),
+    0,
+  )
+  return Math.max(0, Math.trunc(total))
+}
+
+/**
+ * Normalizes a raw unread total to a safe non-negative integer.
+ *
+ * The badge renders a number from a server payload or an optimistic delta, so
+ * a `NaN`, a negative value or a fraction must never reach the DOM.
+ */
+export function normalizeUnreadCount(count: unknown): number {
+  const value = typeof count === 'number' ? count : Number(count)
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.trunc(value))
+}
+
+/**
+ * Badge text for an unread total, or `null` when there is nothing to show.
+ *
+ * Returning `null` instead of `'0'` keeps a zero count from rendering as a
+ * badge, which would read as an unread item that does not exist.
+ */
+export function unreadBadgeLabel(count: unknown): string | null {
+  const value = normalizeUnreadCount(count)
+  return value === 0 ? null : String(value)
 }
 
 /**
@@ -175,3 +245,39 @@ export function emptyPage(filters: NotificationFilters = {}): Paginated<Notifica
 }
 
 export const DEFAULT_PAGE_SIZE = 20
+
+const MINUTE_MS = 60_000
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
+
+/** Past this age a timestamp reads as a calendar date instead of `Nd ago`. */
+const RELATIVE_CUTOFF_MS = 7 * DAY_MS
+
+/**
+ * Renders a notification's `createdAt` for an inbox row.
+ *
+ * Recent entries read as an age (`3m ago`), which is what a notification inbox
+ * needs, and anything older than a week falls back to the shared
+ * `formatShortDate`, so a date looks identical wherever it is rendered.
+ *
+ * An unparseable timestamp returns an empty string. A row must never print
+ * `Invalid Date`, and omitting the time is less misleading than inventing one.
+ * The `instanceof` check also covers entries restored from a persisted cache,
+ * where `createdAt` can arrive as a string despite the model's type.
+ *
+ * `now` is injected so the output is deterministic in tests and so a row can
+ * re-derive its label when the tab has been open for a while.
+ */
+export function formatNotificationTime(createdAt: Date, now: Date = new Date()): string {
+  if (!(createdAt instanceof Date) || Number.isNaN(createdAt.getTime())) return ''
+
+  const ageMs = now.getTime() - createdAt.getTime()
+
+  // Clock skew (a server timestamp slightly ahead of the client) is not a
+  // future event worth labelling, so it renders as the newest entry.
+  if (ageMs < MINUTE_MS) return 'Just now'
+  if (ageMs < HOUR_MS) return `${Math.floor(ageMs / MINUTE_MS)}m ago`
+  if (ageMs < DAY_MS) return `${Math.floor(ageMs / HOUR_MS)}h ago`
+  if (ageMs < RELATIVE_CUTOFF_MS) return `${Math.floor(ageMs / DAY_MS)}d ago`
+  return formatShortDate(createdAt.toISOString())
+}

@@ -1,11 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { paymentResultRefetchInterval, txStatusRefetchInterval } from './polling'
+import {
+  isTerminalTxStatus,
+  paymentResultRefetchInterval,
+  shouldPollTransaction,
+  txStatusRefetchInterval,
+} from './polling'
 
 describe('paymentResultRefetchInterval (#778)', () => {
   it('keeps polling until the payment result is successful', () => {
     expect(paymentResultRefetchInterval({ state: { data: undefined } })).toBe(5000)
-    expect(paymentResultRefetchInterval({ state: { data: { status: 'failed' } } })).toBe(5000)
     expect(paymentResultRefetchInterval({ state: { data: { status: 'success' } } })).toBe(false)
+  })
+
+  it('stops polling at a terminal payment result status (#64)', () => {
+    expect(paymentResultRefetchInterval({ state: { data: { status: 'failed' } } })).toBe(false)
   })
 })
 
@@ -88,5 +96,47 @@ describe('txStatusRefetchInterval max poll time (#799)', () => {
     expect(
       txStatusRefetchInterval({ state: { data: { status: 'confirmed' } } }, 3000, START, MAX_POLL_TIME)
     ).toBe(false)
+  })
+})
+
+describe('isTerminalTxStatus (#64)', () => {
+  it('treats confirmed and failed as terminal', () => {
+    expect(isTerminalTxStatus('confirmed')).toBe(true)
+    expect(isTerminalTxStatus('failed')).toBe(true)
+  })
+
+  it('treats submitted, confirming and unknown as non-terminal', () => {
+    expect(isTerminalTxStatus('submitted')).toBe(false)
+    expect(isTerminalTxStatus('confirming')).toBe(false)
+    expect(isTerminalTxStatus(undefined)).toBe(false)
+  })
+})
+
+describe('shouldPollTransaction (#64)', () => {
+  it('polls while the transaction is not terminal', () => {
+    expect(shouldPollTransaction('abc', undefined)).toBe(true)
+    expect(shouldPollTransaction('abc', 'submitted')).toBe(true)
+    expect(shouldPollTransaction('abc', 'confirming')).toBe(true)
+  })
+
+  it('stops polling once the transaction reaches a terminal status', () => {
+    expect(shouldPollTransaction('abc', 'confirmed')).toBe(false)
+    expect(shouldPollTransaction('abc', 'failed')).toBe(false)
+  })
+
+  it('does not poll without a transaction hash', () => {
+    expect(shouldPollTransaction(null, 'confirming')).toBe(false)
+    expect(shouldPollTransaction(undefined, undefined)).toBe(false)
+  })
+
+  it('restarts polling for a new transaction after a terminal one', () => {
+    const firstTx = 'tx-first'
+    const secondTx = 'tx-second'
+
+    // The first transaction finished, so its poll loop is over.
+    expect(shouldPollTransaction(firstTx, 'confirmed')).toBe(false)
+    // A new transaction hash starts a fresh poll loop.
+    expect(shouldPollTransaction(secondTx, undefined)).toBe(true)
+    expect(shouldPollTransaction(secondTx, 'submitted')).toBe(true)
   })
 })
