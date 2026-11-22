@@ -4,7 +4,12 @@
  * In-app notifications and alerts.
  * This barrel is the feature's public API; everything else stays private.
  */
-export { useMarkAllNotificationsRead, useNotifications, useSetNotificationRead, useUnreadCount } from './hooks/useNotifications'
+export {
+  useMarkAllNotificationsRead,
+  useNotifications,
+  useSetNotificationRead,
+  useUnreadCount,
+} from './hooks/useNotifications'
 export { notificationApi } from './services/notificationApi'
 export { notificationKeys } from './queryKeys'
 export type { NotificationFilters } from './queryKeys'
@@ -20,6 +25,7 @@ export {
   dedupeById,
   emptyPage,
   filterNotifications,
+  formatNotificationTime,
   matchesFilters,
   mergePage,
   unreadIds,
