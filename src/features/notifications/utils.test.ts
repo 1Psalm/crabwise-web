@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { notificationStatusMeta } from '@/lib/status'
 import type { Notification, NotificationType, Paginated } from '@/types'
 import {
   DEFAULT_PAGE_SIZE,
+  FALLBACK_NOTIFICATION_KIND,
   NOTIFICATION_KINDS,
   NOTIFICATION_KIND_LABELS,
   UNREAD_POLL_INTERVAL_MS,
@@ -12,8 +14,12 @@ import {
   dedupeById,
   emptyPage,
   filterNotifications,
+  isNotificationKind,
   matchesFilters,
   mergePage,
+  notificationKind,
+  notificationKindMeta,
+  notificationTarget,
   unreadIds,
 } from './utils'
 
@@ -30,8 +36,18 @@ function makeNotification(overrides: Partial<Notification> = {}): Notification {
   }
 }
 
-function page(items: Notification[], overrides: Partial<Paginated<Notification>> = {}): Paginated<Notification> {
-  return { items, page: 1, pageSize: DEFAULT_PAGE_SIZE, total: items.length, hasNextPage: false, ...overrides }
+function page(
+  items: Notification[],
+  overrides: Partial<Paginated<Notification>> = {},
+): Paginated<Notification> {
+  return {
+    items,
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    total: items.length,
+    hasNextPage: false,
+    ...overrides,
+  }
 }
 
 describe('notification kind metadata', () => {
@@ -47,6 +63,64 @@ describe('notification kind metadata', () => {
     for (const kind of NOTIFICATION_KINDS) {
       expect(NOTIFICATION_KIND_LABELS[kind]).toBeTruthy()
     }
+  })
+
+  it('takes its labels from the shared status metadata', () => {
+    for (const kind of NOTIFICATION_KINDS) {
+      expect(NOTIFICATION_KIND_LABELS[kind]).toBe(notificationStatusMeta(kind).label)
+      expect(notificationStatusMeta(kind).className).not.toBe('')
+    }
+  })
+})
+
+describe('notification kind fallbacks', () => {
+  it('recognises every supported kind', () => {
+    for (const kind of NOTIFICATION_KINDS) expect(isNotificationKind(kind)).toBe(true)
+  })
+
+  it('rejects values the API could add before the client supports them', () => {
+    for (const value of ['badge', 'ORDER', '', null, undefined, 42, ['order'], { type: 'order' }]) {
+      expect(isNotificationKind(value)).toBe(false)
+    }
+  })
+
+  it('narrows an unknown kind to the fallback instead of leaking it through', () => {
+    expect(notificationKind('badge')).toBe(FALLBACK_NOTIFICATION_KIND)
+    expect(notificationKind(undefined)).toBe(FALLBACK_NOTIFICATION_KIND)
+    expect(notificationKind('review')).toBe('review')
+  })
+
+  it('gives an unknown kind readable metadata rather than undefined', () => {
+    const meta = notificationKindMeta('badge')
+    expect(meta).toEqual(notificationStatusMeta(FALLBACK_NOTIFICATION_KIND))
+    expect(meta.label).toBeTruthy()
+    expect(meta.className).not.toBe('')
+  })
+})
+
+describe('notificationTarget', () => {
+  it('follows an in-app path', () => {
+    expect(notificationTarget({ type: 'order', link: '/orders/42' })).toBe('/orders/42')
+  })
+
+  it('has no target when the notification has no link', () => {
+    expect(notificationTarget({ type: 'system', link: null })).toBeNull()
+    expect(notificationTarget({ type: 'system', link: '   ' })).toBeNull()
+  })
+
+  it('refuses external and protocol-relative destinations', () => {
+    for (const link of [
+      'https://evil.example/path',
+      '//evil.example/path',
+      'javascript:alert(1)',
+      'orders/42',
+    ]) {
+      expect(notificationTarget({ type: 'order', link })).toBeNull()
+    }
+  })
+
+  it('has no target for an unknown kind even when a link is present', () => {
+    expect(notificationTarget({ type: 'badge' as NotificationType, link: '/orders/42' })).toBeNull()
   })
 })
 
@@ -97,7 +171,11 @@ describe('dedupeById', () => {
 describe('mergePage', () => {
   it('never produces a duplicate after a refetch', () => {
     const cached = [makeNotification({ id: 'a' }), makeNotification({ id: 'b' })]
-    const refetched = [makeNotification({ id: 'a' }), makeNotification({ id: 'b' }), makeNotification({ id: 'c' })]
+    const refetched = [
+      makeNotification({ id: 'a' }),
+      makeNotification({ id: 'b' }),
+      makeNotification({ id: 'c' }),
+    ]
 
     const result = mergePage(cached, refetched)
     expect(result).toHaveLength(3)
@@ -119,7 +197,11 @@ describe('mergePage', () => {
 
 describe('applyReadState', () => {
   it('marks the listed ids and leaves the rest untouched', () => {
-    const list = [makeNotification({ id: 'a' }), makeNotification({ id: 'b' }), makeNotification({ id: 'c', read: true })]
+    const list = [
+      makeNotification({ id: 'a' }),
+      makeNotification({ id: 'b' }),
+      makeNotification({ id: 'c', read: true }),
+    ]
     const result = applyReadState(list, ['a', 'c'], true)
 
     expect(result.map((n) => n.read)).toEqual([true, false, true])
@@ -204,7 +286,10 @@ describe('filtering', () => {
   })
 
   it('narrows by kind', () => {
-    expect(filterNotifications(list, { types: ['order', 'system'] }).map((n) => n.id)).toEqual(['a', 'c'])
+    expect(filterNotifications(list, { types: ['order', 'system'] }).map((n) => n.id)).toEqual([
+      'a',
+      'c',
+    ])
   })
 
   it('narrows by read state', () => {
@@ -213,7 +298,9 @@ describe('filtering', () => {
   })
 
   it('combines kind and read state', () => {
-    expect(filterNotifications(list, { types: ['message'], read: true }).map((n) => n.id)).toEqual(['b'])
+    expect(filterNotifications(list, { types: ['message'], read: true }).map((n) => n.id)).toEqual([
+      'b',
+    ])
   })
 
   it('treats an empty type list as "every kind"', () => {

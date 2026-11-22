@@ -1,18 +1,15 @@
+import type { NotificationType } from '@/types'
+
 /**
  * One place for status pill labels, colours and descriptions. Every screen that
- * renders an order, listing, transaction or escrow status reads it from here.
+ * renders an order, listing, transaction, escrow or notification status reads
+ * it from here.
  */
 export type OrderStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'refunded'
 export type ListingStatus = 'draft' | 'active' | 'sold' | 'unpublished'
 export type TransactionStatus = 'submitted' | 'confirming' | 'confirmed' | 'failed'
 export type EscrowStatus =
-  | 'funded'
-  | 'in_progress'
-  | 'delivered'
-  | 'released'
-  | 'refunded'
-  | 'disputed'
-  | 'cancelled'
+  'funded' | 'in_progress' | 'delivered' | 'released' | 'refunded' | 'disputed' | 'cancelled'
 
 /** Every status string the app renders as a pill. */
 export type AppStatus = OrderStatus | ListingStatus | TransactionStatus | EscrowStatus
@@ -42,18 +39,68 @@ const STATUS_META: Record<AppStatus, StatusMeta> = {
   draft: { label: 'Draft', className: NEUTRAL, description: 'Not published yet.' },
   active: { label: 'Active', className: SUCCESS, description: 'Visible and available to buy.' },
   sold: { label: 'Sold', className: PRIMARY, description: 'Purchased by a buyer.' },
-  unpublished: { label: 'Unpublished', className: WARNING, description: 'Hidden from the marketplace.' },
+  unpublished: {
+    label: 'Unpublished',
+    className: WARNING,
+    description: 'Hidden from the marketplace.',
+  },
   // transactions
   submitted: { label: 'Submitted', className: NEUTRAL, description: 'Sent to the network.' },
   confirming: { label: 'Confirming', className: ACTIVE, description: 'Waiting for confirmations.' },
   confirmed: { label: 'Confirmed', className: SUCCESS, description: 'Confirmed on-chain.' },
   // escrow
   funded: { label: 'Funded', className: PRIMARY, description: 'Funds are held in escrow.' },
-  in_progress: { label: 'In Progress', className: ACTIVE, description: 'The artist is working on it.' },
-  delivered: { label: 'Delivered', className: WARNING, description: 'Delivered and awaiting approval.' },
+  in_progress: {
+    label: 'In Progress',
+    className: ACTIVE,
+    description: 'The artist is working on it.',
+  },
+  delivered: {
+    label: 'Delivered',
+    className: WARNING,
+    description: 'Delivered and awaiting approval.',
+  },
   released: { label: 'Released', className: SUCCESS, description: 'Funds released to the artist.' },
   disputed: { label: 'Disputed', className: DANGER, description: 'Under dispute.' },
-  cancelled: { label: 'Cancelled', className: NEUTRAL, description: 'Cancelled before completion.' },
+  cancelled: {
+    label: 'Cancelled',
+    className: NEUTRAL,
+    description: 'Cancelled before completion.',
+  },
+}
+
+/**
+ * Notification kinds are the notification "status" a surface renders.
+ *
+ * They are a subset of the API's notification types, so a value that survives
+ * mapping always has a readable label here.
+ */
+export type NotificationStatus = NotificationType
+
+const NOTIFICATION_STATUS_META: Record<NotificationStatus, StatusMeta> = {
+  order: { label: 'Orders', className: WARNING, description: 'Updates about your orders.' },
+  commission: {
+    label: 'Commissions',
+    className: ACTIVE,
+    description: 'Progress on commissioned work.',
+  },
+  payment: { label: 'Payments', className: SUCCESS, description: 'Payment activity and receipts.' },
+  review: { label: 'Reviews', className: PRIMARY, description: 'Reviews and ratings.' },
+  message: {
+    label: 'Messages',
+    className: PRIMARY,
+    description: 'New messages from other people.',
+  },
+  system: {
+    label: 'System',
+    className: NEUTRAL,
+    description: 'Account and platform announcements.',
+  },
+}
+
+/** Label, pill classes and description for a notification status. */
+export function notificationStatusMeta(status: NotificationStatus): StatusMeta {
+  return NOTIFICATION_STATUS_META[status]
 }
 
 /** Label, pill classes and description for a status. */

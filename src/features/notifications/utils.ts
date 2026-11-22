@@ -1,4 +1,5 @@
 import type { Notification, NotificationType, Paginated } from '@/types'
+import { notificationStatusMeta, type StatusMeta } from '@/lib/status'
 import type { NotificationFilters } from './queryKeys'
 
 /**
@@ -21,14 +22,55 @@ export const NOTIFICATION_KINDS: readonly NotificationType[] = [
   'system',
 ] as const
 
-/** Per-kind label and grouping, so surfaces do not each invent their own copy. */
-export const NOTIFICATION_KIND_LABELS: Record<NotificationType, string> = {
-  order: 'Orders',
-  commission: 'Commissions',
-  payment: 'Payments',
-  review: 'Reviews',
-  message: 'Messages',
-  system: 'System',
+/**
+ * Per-kind label, so surfaces do not each invent their own copy.
+ *
+ * Derived from `src/lib/status.ts` instead of duplicated here: the filter UI,
+ * the badge and any list row all read the same label for the same kind.
+ */
+export const NOTIFICATION_KIND_LABELS = Object.fromEntries(
+  NOTIFICATION_KINDS.map((kind) => [kind, notificationStatusMeta(kind).label]),
+) as Record<NotificationType, string>
+
+/** Kind used when the wire value is missing or not one this build knows. */
+export const FALLBACK_NOTIFICATION_KIND: NotificationType = 'system'
+
+/** Whether a value is a notification kind this build can render. */
+export function isNotificationKind(value: unknown): value is NotificationType {
+  return typeof value === 'string' && (NOTIFICATION_KINDS as readonly string[]).includes(value)
+}
+
+/**
+ * Narrows an unknown notification kind to a supported one.
+ *
+ * The API can add a kind before the client ships support for it; rendering the
+ * fallback keeps an unknown value from reaching a lookup that would return
+ * `undefined` and crash the row.
+ */
+export function notificationKind(value: unknown): NotificationType {
+  return isNotificationKind(value) ? value : FALLBACK_NOTIFICATION_KIND
+}
+
+/** Status pill metadata for a notification, safe for unknown wire values. */
+export function notificationKindMeta(value: unknown): StatusMeta {
+  return notificationStatusMeta(notificationKind(value))
+}
+
+/**
+ * Navigation target for a notification, or `null` when there is nowhere safe
+ * to go.
+ *
+ * Only same-app absolute paths are followed: an unknown kind, a missing link,
+ * an external URL or a protocol-relative `//host` path all resolve to `null`
+ * rather than navigating a notification to an unintended destination.
+ */
+export function notificationTarget(
+  notification: Pick<Notification, 'type' | 'link'>,
+): string | null {
+  if (!isNotificationKind(notification.type)) return null
+  const link = notification.link?.trim()
+  if (!link || !link.startsWith('/') || link.startsWith('//')) return null
+  return link
 }
 
 /** Number of unread notifications in a list. */
