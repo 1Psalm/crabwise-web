@@ -1,5 +1,4 @@
 import { useMemo } from 'react'
-import { Input } from '@/components/ui'
 import { DISPLAY_FALLBACK_PRECISION, getAssetMeta } from '@/config'
 
 interface LineItem {
@@ -24,9 +23,9 @@ interface PaymentSummaryAndFeeBreakdownProps {
   editable?: boolean
   /** Callback when user confirms after fee change */
   onReconfirm?: () => void
+  /** Explanation shown when the selected asset cannot be used for payment */
+  assetUnavailableReason?: string
 }
-
-
 
 export default function PaymentSummaryAndFeeBreakdown({
   price,
@@ -36,6 +35,7 @@ export default function PaymentSummaryAndFeeBreakdown({
   discount,
   editable = false,
   onReconfirm,
+  assetUnavailableReason,
 }: PaymentSummaryAndFeeBreakdownProps) {
   const meta = getAssetMeta(asset)
   const precision = meta?.precision ?? DISPLAY_FALLBACK_PRECISION
@@ -49,14 +49,29 @@ export default function PaymentSummaryAndFeeBreakdown({
 
     const items: LineItem[] = [
       { label: 'Artwork Price', amount: priceNum.toFixed(precision), asset, type: 'price' },
-      { label: `Platform Fee (${platformFeePercent}%)`, amount: platformFeeNum.toFixed(precision), asset, type: 'fee' },
+      {
+        label: `Platform Fee (${platformFeePercent}%)`,
+        amount: platformFeeNum.toFixed(precision),
+        asset,
+        type: 'fee',
+      },
     ]
 
     if (discountNum > 0) {
-      items.push({ label: 'Discount', amount: `-${discountNum.toFixed(precision)}`, asset, type: 'discount' })
+      items.push({
+        label: 'Discount',
+        amount: `-${discountNum.toFixed(precision)}`,
+        asset,
+        type: 'discount',
+      })
     }
 
-    items.push({ label: 'Est. Network Fee', amount: networkFeeNum.toFixed(precision), asset, type: 'network_fee' })
+    items.push({
+      label: 'Est. Network Fee',
+      amount: networkFeeNum.toFixed(precision),
+      asset,
+      type: 'network_fee',
+    })
 
     const total = priceNum + platformFeeNum + networkFeeNum - discountNum
     items.push({ label: 'Total', amount: total.toFixed(precision), asset, type: 'total' })
@@ -76,6 +91,12 @@ export default function PaymentSummaryAndFeeBreakdown({
         Review the exact breakdown of what you'll pay. Amounts shown in {asset}.
       </p>
 
+      {assetUnavailableReason && (
+        <p className="mt-3 text-caption-sm text-danger" role="alert">
+          {assetUnavailableReason}
+        </p>
+      )}
+
       <dl className="mt-4 space-y-3" role="list">
         {lineItems.map((item, index) => (
           <div
@@ -86,10 +107,14 @@ export default function PaymentSummaryAndFeeBreakdown({
             <dt className={`text-muted ${item.type === 'total' ? 'font-semibold' : ''}`}>
               {item.label}
               {editable && item.type !== 'total' && (
-                <span className="ml-2 text-caption-xs text-primary" title="Click to refresh quote">↻</span>
+                <span className="ml-2 text-caption-xs text-primary" title="Click to refresh quote">
+                  ↻
+                </span>
               )}
             </dt>
-            <dd className={`font-mono ${item.type === 'discount' ? 'text-success' : item.type === 'total' ? 'text-foreground' : 'text-foreground'}`}>
+            <dd
+              className={`font-mono ${item.type === 'discount' ? 'text-success' : item.type === 'total' ? 'text-foreground' : 'text-foreground'}`}
+            >
               {formatAmount(item.amount)}
             </dd>
           </div>
@@ -99,9 +124,16 @@ export default function PaymentSummaryAndFeeBreakdown({
       {editable && (
         <div className="mt-4 p-3 rounded-control bg-warning/10 border border-warning/30">
           <p className="text-caption-sm text-warning">
-            <strong>Fees updated.</strong> The platform fee or network fee estimate has changed since your last quote.
+            <strong>Fees updated.</strong> The platform fee or network fee estimate has changed
+            since your last quote.
           </p>
-          <Button size="sm" className="mt-2" onClick={onReconfirm} variant="secondary">
+          <Button
+            size="sm"
+            className="mt-2"
+            onClick={onReconfirm}
+            variant="secondary"
+            disabled={!!assetUnavailableReason}
+          >
             Confirm Updated Amounts
           </Button>
         </div>
@@ -110,9 +142,9 @@ export default function PaymentSummaryAndFeeBreakdown({
       <div className="mt-6 pt-4 border-t border-line">
         <h3 className="text-caption-sm font-semibold text-muted">Escrow Notice</h3>
         <p className="mt-2 text-caption text-muted">
-          For protected commissions, funds are held in escrow until you confirm delivery.
-          The seller receives payment only after you approve the deliverables or the auto-release
-          period expires.
+          For protected commissions, funds are held in escrow until you confirm delivery. The seller
+          receives payment only after you approve the deliverables or the auto-release period
+          expires.
         </p>
       </div>
     </div>
