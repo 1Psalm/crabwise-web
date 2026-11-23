@@ -73,12 +73,33 @@ export default function ArtistWithdrawal() {
   const precision = assetMeta?.precision ?? DISPLAY_FALLBACK_PRECISION
   const minAmount = assetMeta?.minWithdrawal ?? '0'
   const fee = assetMeta?.withdrawalFee ?? '0'
+  const amountNum = Number(amount)
+  const amountDecimals = amount.includes('.') ? (amount.split('.')[1]?.length ?? 0) : 0
   const isAmountValid =
     assetMeta !== null &&
-    parseFloat(amount) > 0 &&
-    parseFloat(amount) >= parseFloat(minAmount) &&
-    parseFloat(amount) <= parseFloat(availableAmount)
+    amount.trim() !== '' &&
+    Number.isFinite(amountNum) &&
+    amountNum > 0 &&
+    amountDecimals <= precision &&
+    amountNum >= Number(minAmount) &&
+    amountNum <= Number(availableAmount)
   const hasValidWallet = wallets?.some((w) => w.id === selectedWalletId) ?? false
+
+  const withdrawalUnavailableReason = (() => {
+    if (!wallets || wallets.length === 0) {
+      return 'No linked wallet is available for withdrawals. Next step: link and verify a wallet in Wallet Settings.'
+    }
+    if (!selectedWalletId && !defaultWalletId) {
+      return 'No destination wallet is selected. Next step: choose a linked wallet to receive funds.'
+    }
+    if (assetMeta === null) {
+      return `Withdrawals are unavailable for ${selectedAsset}. Next step: select a supported asset with known withdrawal rules.`
+    }
+    if (Number(availableAmount) <= 0) {
+      return `No available ${selectedAsset} balance to withdraw. Next step: wait for earnings to settle or clear escrow before withdrawing.`
+    }
+    return null
+  })()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -201,14 +222,26 @@ export default function ArtistWithdrawal() {
             </div>
           </div>
 
+          {withdrawalUnavailableReason && (
+            <p role="status" className="rounded-control bg-warning/10 p-3 text-caption-sm text-warning">
+              {withdrawalUnavailableReason}
+            </p>
+          )}
+
           <Button
             type="submit"
             className="w-full"
             isLoading={withdrawMutation.isPending}
-            disabled={!isAmountValid || !hasValidWallet || withdrawMutation.isPending}
+            disabled={!isAmountValid || !hasValidWallet || withdrawMutation.isPending || !!withdrawalUnavailableReason}
           >
             Withdraw {selectedAsset}
           </Button>
+
+          {amount && !isAmountValid && (
+            <p role="alert" className="text-caption text-danger">
+              Enter a valid amount up to {availableAmount} {selectedAsset} with at most {precision} decimal places (min {minAmount}).
+            </p>
+          )}
 
           {withdrawMutation.isError && (
             <p role="alert" className="text-caption text-danger">
