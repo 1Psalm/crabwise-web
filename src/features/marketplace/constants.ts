@@ -6,10 +6,25 @@
  * `LicenseTermsField`, which evaluated to `undefined` and crashed). One
  * declaration, imported from here by every consumer.
  */
+export const LICENSE_LABELS = {
+  personal: {
+    label: 'Personal Use',
+    description: 'For personal, non-commercial use only',
+  },
+  commercial: {
+    label: 'Commercial Use',
+    description: 'Allows commercial use with attribution',
+  },
+  exclusive: {
+    label: 'Exclusive Rights',
+    description: 'Full exclusive rights, artwork removed from marketplace',
+  },
+} as const
+
 export const LICENSE_PRESETS = [
-  { value: 'personal', label: 'Personal Use', description: 'For personal, non-commercial use only' },
-  { value: 'commercial', label: 'Commercial Use', description: 'Allows commercial use with attribution' },
-  { value: 'exclusive', label: 'Exclusive Rights', description: 'Full exclusive rights, artwork removed from marketplace' },
+  { value: 'personal', ...LICENSE_LABELS.personal },
+  { value: 'commercial', ...LICENSE_LABELS.commercial },
+  { value: 'exclusive', ...LICENSE_LABELS.exclusive },
 ] as const
 
 /**
@@ -31,5 +46,6 @@ export const ALLOWED_DELIVERABLE_TYPES = [
 ] as const
 
 export const MAX_DELIVERABLE_FILE_SIZE = 500 * 1024 * 1024 // 500MB
+/** Human-readable label for `MAX_DELIVERABLE_FILE_SIZE`; keep the two in sync. */
 export const MAX_DELIVERABLE_FILE_SIZE_LABEL = '500MB'
 export const MAX_DELIVERABLE_FILES = 20
