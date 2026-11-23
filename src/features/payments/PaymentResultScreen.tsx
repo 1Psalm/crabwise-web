@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Button, ExplorerLink, Spinner } from '@/components/ui'
 import { http } from '@/services'
 import { formatDate, safeExternalUrl } from '@/lib'
 import { paymentResultRefetchInterval } from './polling'
-import { useQuery } from '@tanstack/react-query'
 
 interface PaymentResultData {
   id: string
@@ -68,22 +67,31 @@ const FAILURE_REMEDIES: Record<string, { title: string; description: string; act
   },
 }
 
+const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/
+
+function isValidSessionId(value: string | null): value is string {
+  return typeof value === 'string' && SESSION_ID_RE.test(value.trim())
+}
+
 export default function PaymentResultScreen() {
   const [searchParams] = useSearchParams()
-  const sessionId = searchParams.get('sessionId')
+  const rawSessionId = searchParams.get('sessionId')
+  const sessionId = rawSessionId?.trim() ?? null
+  const validSessionId = isValidSessionId(sessionId)
   const [showConfetti, setShowConfetti] = useState(false)
+  const queryClient = useQueryClient()
 
   const { data: result, isPending, isError, error, refetch } = useQuery({
     queryKey: ['paymentResult', sessionId],
     queryFn: async (): Promise<PaymentResultData> => {
-      if (!sessionId) throw new Error('No session ID')
+      if (!validSessionId || !sessionId) throw new Error('Invalid session ID')
       const response = await http.get<{ result: PaymentResultData }>(
         `/payments/result/${encodeURIComponent(sessionId)}`,
         { skipToast: true },
       )
       return response.result
     },
-    enabled: !!sessionId,
+    enabled: validSessionId,
     refetchInterval: paymentResultRefetchInterval,
   })
 
@@ -93,14 +101,29 @@ export default function PaymentResultScreen() {
     }
   }, [result?.status, showConfetti])
 
-  if (!sessionId) {
+  useEffect(() => {
+    if (result?.status === 'success') {
+      // Refresh balance data only after a confirmed payment.
+      queryClient.invalidateQueries({ queryKey: ['walletBalances'] })
+      queryClient.invalidateQueries({ queryKey: ['artistBalances'] })
+    }
+  }, [queryClient, result?.status])
+
+  if (!validSessionId) {
     return (
       <div className="container py-24 text-center">
         <h1 className="text-h2">Invalid payment link</h1>
-        <p className="mt-2 text-caption text-muted">Missing session ID.</p>
-        <Button className="mt-6" asChild>
-          <Link to="/">Go home</Link>
-        </Button>
+        <p className="mt-2 text-caption text-muted">
+          The payment session ID is missing or invalid. Please open the payment result from your purchases or return home for safe recovery.
+        </p>
+        <div className="mt-6 flex justify-center gap-3">
+          <Button asChild>
+            <Link to="/purchases">Go to purchases</Link>
+          </Button>
+          <Button variant="secondary" asChild>
+            <Link to="/">Go home</Link>
+          </Button>
+        </div>
       </div>
     )
   }
