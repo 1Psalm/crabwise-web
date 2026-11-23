@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Button } from '@/components/ui'
 import { http } from '@/services'
 import { useWallet } from '@/features/auth/hooks/useWallet'
 import { DISPLAY_FALLBACK_PRECISION, getAssetMeta } from '@/config'
@@ -20,8 +19,6 @@ interface PaymentAssetSelectorProps {
   disabled?: boolean
 }
 
-
-
 export default function PaymentAssetSelector({
   price,
   acceptedAssets,
@@ -30,9 +27,12 @@ export default function PaymentAssetSelector({
   disabled = false,
 }: PaymentAssetSelectorProps) {
   const { publicKey } = useWallet()
-  const [warning, setWarning] = useState<string | null>(null)
 
-  const { data: balances } = useQuery({
+  const {
+    data: balances,
+    isPending: balancesPending,
+    isError: balancesError,
+  } = useQuery({
     queryKey: paymentKeys.selectableAssets(publicKey),
     queryFn: async (): Promise<AssetBalance[]> => {
       if (!publicKey) return []
@@ -44,107 +44,92 @@ export default function PaymentAssetSelector({
     enabled: !!publicKey,
   })
 
-  // Check balance when selected asset changes
-  useEffect(() => {
-    if (!selectedAsset || !balances) {
-      setWarning(null)
-      return
-    }
-    const balance = balances.find((b) => b.asset === selectedAsset)
-    if (!balance) {
-      setWarning(`No balance data for ${selectedAsset}`)
-      return
-    }
-    if (!balance.hasTrustline) {
-      setWarning(`Trustline missing for ${selectedAsset}. Add it in your wallet first.`)
-      return
-    }
-    const required = parseFloat(price)
-    const available = parseFloat(balance.balance)
-    if (available < required) {
-      setWarning(`Insufficient ${selectedAsset} balance. Need ${price}, have ${balance.balance}`)
-      return
-    }
-    setWarning(null)
-  }, [selectedAsset, balances, price])
+  const getUnavailableReason = (asset: string): string | null => {
+    if (!acceptedAssets.includes(asset)) return 'This asset is not accepted by the seller.'
+    if (!publicKey) return 'Connect your wallet to check this asset.'
+    if (balancesError) return 'Could not verify your wallet balance. Try again before checkout.'
+    if (balancesPending || !balances) return 'Checking your wallet balance.'
 
-  const availableAssets = acceptedAssets.filter((asset) => {
-    if (!balances) return true
-    const balance = balances.find((b) => b.asset === asset)
-    return balance && balance.hasTrustline
-  })
+    const balance = balances.find((item) => item.asset === asset)
+    if (!balance) return `No ${asset} balance was found in your wallet.`
+    if (!balance.hasTrustline) return `Trustline missing for ${asset}. Add it in your wallet first.`
+    if (parseFloat(balance.balance) < parseFloat(price)) {
+      return `Insufficient ${asset} balance. Need ${price}, have ${balance.balance}.`
+    }
+    return null
+  }
+
+  const selectedAssetUnavailableReason = selectedAsset ? getUnavailableReason(selectedAsset) : null
+
+  // Clear stale selections as soon as their availability can no longer be verified.
+  useEffect(() => {
+    if (selectedAsset && selectedAssetUnavailableReason) onSelect('')
+  }, [selectedAsset, selectedAssetUnavailableReason, onSelect])
 
   const handleSelect = (asset: string) => {
-    if (disabled) return
-    const balance = balances?.find((b) => b.asset === asset)
-    if (balance && !balance.hasTrustline) {
-      setWarning(`Trustline missing for ${asset}. Add it in your wallet first.`)
-      return
-    }
+    if (disabled || getUnavailableReason(asset)) return
     onSelect(asset)
   }
 
   return (
     <div className="rounded-card border border-line bg-surface p-4">
-      <label className="block text-caption-sm font-medium text-foreground mb-2">
-        Pay with
-      </label>
+      <fieldset className="min-w-0">
+        <legend className="mb-2 block text-caption-sm font-medium text-foreground">Pay with</legend>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {availableAssets.map((asset) => {
-          const balance = balances?.find((b) => b.asset === asset)
-          const precision = getAssetMeta(asset)?.precision ?? DISPLAY_FALLBACK_PRECISION
-          const isSelected = selectedAsset === asset
-          const hasBalance = balance && parseFloat(balance.balance) >= parseFloat(price)
-          const isDisabled = disabled || !balance || !balance.hasTrustline || !hasBalance
+        <div className="flex flex-wrap items-center gap-2">
+          {acceptedAssets.map((asset, index) => {
+            const balance = balances?.find((b) => b.asset === asset)
+            const precision = getAssetMeta(asset)?.precision ?? DISPLAY_FALLBACK_PRECISION
+            const isSelected = selectedAsset === asset
+            const unavailableReason = getUnavailableReason(asset)
+            const reasonId = `payment-asset-unavailable-${index}`
+            const isDisabled = disabled || !!unavailableReason
 
-          return (
-            <button
-              key={asset}
-              type="button"
-              onClick={() => handleSelect(asset)}
-              disabled={isDisabled}
-              className={`flex items-center gap-2 rounded-control px-3 py-2 text-caption-sm font-medium transition-colors ${
-                isSelected
-                  ? 'bg-primary text-primary-contrast ring-2 ring-primary ring-offset-2 ring-offset-surface'
-                  : 'bg-surface-muted text-foreground hover:bg-surface border border-line'
-              } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <span>{getAssetMeta(asset)?.label ?? asset}</span>
-              {balance && (
-                <span className="font-mono text-caption-xs text-muted">
-                  {parseFloat(balance.balance).toLocaleString(undefined, {
-                    minimumFractionDigits: precision,
-                    maximumFractionDigits: precision,
-                  })}
-                </span>
-              )}
-              {isSelected && (
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-            </button>
-          )
-        })}
-      </div>
-
-      {warning && (
-        <p className="mt-2 text-caption-sm text-danger flex items-center gap-1" role="alert">
-          <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-          {warning}
-        </p>
-      )}
-
-      {acceptedAssets.length > availableAssets.length && (
-        <p className="mt-2 text-caption-xs text-muted">
-          Some accepted assets are not available in your wallet.
-        </p>
-      )}
+            return (
+              <div key={asset} className="flex flex-col items-start gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleSelect(asset)}
+                  disabled={isDisabled}
+                  aria-describedby={unavailableReason ? reasonId : undefined}
+                  className={`flex items-center gap-2 rounded-control px-3 py-2 text-caption-sm font-medium transition-colors ${
+                    isSelected
+                      ? 'bg-primary text-primary-contrast ring-2 ring-primary ring-offset-2 ring-offset-surface'
+                      : 'bg-surface-muted text-foreground hover:bg-surface border border-line'
+                  } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  <span>{getAssetMeta(asset)?.label ?? asset}</span>
+                  {balance && (
+                    <span className="font-mono text-caption-xs text-muted">
+                      {parseFloat(balance.balance).toLocaleString(undefined, {
+                        minimumFractionDigits: precision,
+                        maximumFractionDigits: precision,
+                      })}
+                    </span>
+                  )}
+                  {isSelected && (
+                    <svg
+                      className="h-4 w-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      aria-hidden="true"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </button>
+                {unavailableReason && (
+                  <p id={reasonId} className="max-w-48 text-caption-xs text-muted" role="status">
+                    {unavailableReason}
+                  </p>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </fieldset>
     </div>
   )
 }
