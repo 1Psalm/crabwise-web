@@ -61,10 +61,25 @@ export default function PaymentAssetSelector({
 
   const selectedAssetUnavailableReason = selectedAsset ? getUnavailableReason(selectedAsset) : null
 
-  // Clear stale selections as soon as their availability can no longer be verified.
+  // Keep the current selection while a balance request is in flight. Clearing it during
+  // that transient state makes the parent fall back to a different asset and can leave
+  // the payment summary showing values for a selection the user did not make.
   useEffect(() => {
-    if (selectedAsset && selectedAssetUnavailableReason) onSelect('')
-  }, [selectedAsset, selectedAssetUnavailableReason, onSelect])
+    if (
+      selectedAsset &&
+      selectedAssetUnavailableReason &&
+      !(publicKey && (balancesPending || !balances))
+    ) {
+      onSelect('')
+    }
+  }, [
+    selectedAsset,
+    selectedAssetUnavailableReason,
+    publicKey,
+    balancesPending,
+    balances,
+    onSelect,
+  ])
 
   const handleSelect = (asset: string) => {
     if (disabled || getUnavailableReason(asset)) return
