@@ -6,7 +6,7 @@ import { activeStellarNetwork, STELLAR_NETWORK_LABELS } from '@/config'
 import { useWallet } from '@/features/auth/hooks/useWallet'
 import { signWithConnectedWallet } from '@/features/auth/services/wallets'
 import { getWalletConnection } from '@/features/auth/stores/walletStore'
-import { isNetworkMismatch, mapStellarError } from './transactionSigning'
+import { createSigningRequestLock, isNetworkMismatch, mapStellarError } from './transactionSigning'
 import { shortAddress } from '@/lib'
 
 interface TransactionSigningFlowProps {
@@ -55,7 +55,9 @@ export function NetworkBadge({ className = '' }: NetworkBadgeProps) {
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-caption-xs font-semibold ${
-        isTestnet ? 'bg-warning/15 text-warning ring-1 ring-warning/40' : 'bg-primary/10 text-primary'
+        isTestnet
+          ? 'bg-warning/15 text-warning ring-1 ring-warning/40'
+          : 'bg-primary/10 text-primary'
       } ${className}`}
     >
       <span
@@ -80,15 +82,16 @@ export default function TransactionSigningFlow({
   const [txHash, setTxHash] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [signedXdr, setSignedXdr] = useState<string | null>(null)
-  // Guards against a second sign attempt while one is already in flight, so a
-  // double click cannot produce two payments for one order.
-  const signingInFlight = useRef(false)
+  const signingLock = useRef(createSigningRequestLock()).current
+  const [isSigningPending, setIsSigningPending] = useState(false)
   const [networkMismatch, setNetworkMismatch] = useState(false)
   const [needsMainnetConfirm, setNeedsMainnetConfirm] = useState(false)
 
   const prepareMutation = useMutation({
     mutationFn: async (): Promise<{ xdr: string; txHash: string }> => {
-      const response = await http.post<{ xdr: string; txHash: string }>(`/payments/${sessionId}/prepare`)
+      const response = await http.post<{ xdr: string; txHash: string }>(
+        `/payments/${sessionId}/prepare`,
+      )
       return response
     },
     onSuccess: (data) => {
@@ -104,7 +107,9 @@ export default function TransactionSigningFlow({
 
   const submitMutation = useMutation({
     mutationFn: async (signedXdr: string): Promise<{ txHash: string }> => {
-      const response = await http.post<{ txHash: string }>(`/payments/${sessionId}/submit`, { signedXdr })
+      const response = await http.post<{ txHash: string }>(`/payments/${sessionId}/submit`, {
+        signedXdr,
+      })
       return response
     },
     onSuccess: (data) => {
@@ -121,8 +126,6 @@ export default function TransactionSigningFlow({
 
   const handleSign = useCallback(async () => {
     if (!signedXdr) return
-    if (signingInFlight.current) return
-
     // A wallet on the wrong network cannot produce a valid signature here.
     const connection = getWalletConnection()
     if (isNetworkMismatch(connection?.networkPassphrase)) {
@@ -137,7 +140,9 @@ export default function TransactionSigningFlow({
       return
     }
 
-    signingInFlight.current = true
+    if (!signingLock.tryAcquire()) return
+
+    setIsSigningPending(true)
     setStep('signing')
     setError(null)
 
@@ -164,9 +169,10 @@ export default function TransactionSigningFlow({
         onError?.(new Error(message))
       }
     } finally {
-      signingInFlight.current = false
+      signingLock.release()
+      setIsSigningPending(false)
     }
-  }, [signedXdr, submitMutation, onReject, onError, needsMainnetConfirm])
+  }, [signedXdr, submitMutation, onReject, onError, needsMainnetConfirm, signingLock])
 
   const resumeAfterReconnect = useCallback(() => {
     const connection = getWalletConnection()
@@ -187,13 +193,22 @@ export default function TransactionSigningFlow({
   if (!isConnected) {
     return (
       <div className="rounded-card border border-line bg-surface p-8 shadow-card text-center">
-        <svg className="h-16 w-16 mx-auto text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+        <svg
+          className="h-16 w-16 mx-auto text-muted"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          aria-hidden="true"
+        >
           <rect x="3" y="5" width="18" height="14" rx="2" />
           <path d="M9 13h6" />
           <path d="M9 17h4" />
         </svg>
         <h2 className="mt-4 text-h3">Connect Your Wallet</h2>
-        <p className="mt-2 text-caption text-muted">You need to connect a Stellar wallet to sign this transaction.</p>
+        <p className="mt-2 text-caption text-muted">
+          You need to connect a Stellar wallet to sign this transaction.
+        </p>
       </div>
     )
   }
@@ -201,15 +216,15 @@ export default function TransactionSigningFlow({
   const stepLabels: Record<SigningStep, string> = {
     preparing: 'Preparing transaction…',
     waiting_for_wallet: 'Ready to sign',
-    signing: 'Opening wallet…',
-    submitting: 'Submitting to network…',
+    signing: 'Pending — waiting for wallet signature…',
+    submitting: 'Pending — submitting to network…',
     completed: 'Transaction submitted!',
     failed: 'Signing failed',
     paused: 'Paused — waiting for your wallet',
   }
 
   // Never offer a second sign while one is running.
-  const signDisabled = signingInFlight.current || IN_FLIGHT_STEPS.includes(step) || networkMismatch
+  const signDisabled = isSigningPending || IN_FLIGHT_STEPS.includes(step) || networkMismatch
 
   return (
     <div className="rounded-card border border-line bg-surface p-6 shadow-card">
@@ -250,53 +265,96 @@ export default function TransactionSigningFlow({
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted">From</dt>
-                <dd className="font-mono text-caption-xs">{publicKey ? shortAddress(publicKey) : ''}</dd>
+                <dd className="font-mono text-caption-xs">
+                  {publicKey ? shortAddress(publicKey) : ''}
+                </dd>
               </div>
             </dl>
           </div>
 
           <div className="p-3 rounded-control bg-primary/10 border border-primary/30 text-caption-sm text-primary">
-            <svg className="inline h-4 w-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <svg
+              className="inline h-4 w-4 mr-1"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
-            Review the transaction in your wallet before approving. The amount and recipient
-            must match the checkout summary.
+            Review the transaction in your wallet before approving. The amount and recipient must
+            match the checkout summary.
           </div>
 
-          <Button className="w-full" size="lg" onClick={handleSign} isLoading={submitMutation.isPending} disabled={signDisabled}>
+          <Button
+            className="w-full"
+            size="lg"
+            onClick={handleSign}
+            isLoading={isSigningPending || submitMutation.isPending}
+            disabled={signDisabled}
+          >
             Open Wallet & Sign
           </Button>
 
-          <Button variant="ghost" className="w-full" onClick={() => { setStep('failed'); onReject?.() }}>
+          <Button
+            variant="ghost"
+            className="w-full"
+            onClick={() => {
+              setStep('failed')
+              onReject?.()
+            }}
+          >
             Cancel
           </Button>
         </div>
       )}
 
       {step === 'signing' && (
-        <div className="flex flex-col items-center gap-4 py-8">
+        <div
+          className="flex flex-col items-center gap-4 py-8"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
           <Spinner className="h-10 w-10" />
-          <p className="text-caption text-muted">Waiting for wallet signature…</p>
-          <p className="text-caption-xs text-muted">Please approve the transaction in your wallet popup.</p>
+          <p className="text-caption text-muted">Pending — waiting for wallet signature…</p>
+          <p className="text-caption-xs text-muted">
+            Please approve the transaction in your wallet popup.
+          </p>
         </div>
       )}
 
       {step === 'submitting' && (
-        <div className="flex flex-col items-center gap-4 py-8">
+        <div
+          className="flex flex-col items-center gap-4 py-8"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
           <Spinner className="h-10 w-10" />
-          <p className="text-caption text-muted">Broadcasting to Stellar network…</p>
+          <p className="text-caption text-muted">Pending — broadcasting to Stellar network…</p>
         </div>
       )}
 
       {step === 'completed' && (
         <div className="flex flex-col items-center gap-4 py-8 text-center">
           <div className="h-16 w-16 rounded-full bg-success/10 flex items-center justify-center">
-            <svg className="h-8 w-8 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+            <svg
+              className="h-8 w-8 text-success"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              aria-hidden="true"
+            >
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
           <h3 className="text-h3">Transaction Submitted!</h3>
-          <p className="text-caption text-muted">Your payment is being processed on the Stellar network.</p>
+          <p className="text-caption text-muted">
+            Your payment is being processed on the Stellar network.
+          </p>
           {txHash && (
             <div className="mt-4 p-3 rounded-control bg-surface-muted">
               <p className="text-caption-xs text-muted">Transaction Hash</p>
@@ -309,7 +367,14 @@ export default function TransactionSigningFlow({
       {step === 'failed' && (
         <div className="flex flex-col items-center gap-4 py-8 text-center">
           <div className="h-16 w-16 rounded-full bg-danger/10 flex items-center justify-center">
-            <svg className="h-8 w-8 text-danger" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+            <svg
+              className="h-8 w-8 text-danger"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              aria-hidden="true"
+            >
               <circle cx="12" cy="12" r="10" />
               <line x1="15" y1="9" x2="9" y2="15" />
               <line x1="9" y1="9" x2="15" y2="15" />
@@ -318,7 +383,13 @@ export default function TransactionSigningFlow({
           <h3 className="text-h3">Signing Failed</h3>
           <p className="text-caption text-danger">{error ?? 'Unknown error'}</p>
           <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
-            <Button className="flex-1" onClick={() => { setStep('waiting_for_wallet'); setError(null); }}>
+            <Button
+              className="flex-1"
+              onClick={() => {
+                setStep('waiting_for_wallet')
+                setError(null)
+              }}
+            >
               Try Again
             </Button>
             <Button variant="ghost" className="flex-1" onClick={onReject}>
@@ -331,7 +402,14 @@ export default function TransactionSigningFlow({
       {step === 'paused' && (
         <div className="flex flex-col items-center gap-4 py-8 text-center">
           <div className="h-16 w-16 rounded-full bg-warning/10 flex items-center justify-center">
-            <svg className="h-8 w-8 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <svg
+              className="h-8 w-8 text-warning"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
               <path d="M12 9v4M12 17h.01" />
               <path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" />
             </svg>
@@ -369,7 +447,13 @@ export default function TransactionSigningFlow({
         description="Your wallet was disconnected. Reconnect to continue — your transaction is still prepared."
       >
         <div className="mt-6 flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => { setStep('failed'); onReject?.() }}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setStep('failed')
+              onReject?.()
+            }}
+          >
             Cancel
           </Button>
           <Button variant="primary" onClick={resumeAfterReconnect}>
