@@ -46,12 +46,14 @@ export default function CheckoutPage({ artworkId: artworkIdProp }: { artworkId?:
       })
       return response.session
     },
-    enabled: !!artworkId && !!selectedAsset,
+    enabled: !!artworkId && !!selectedAsset && agreedToTerms,
   })
 
   const createSessionMutation = useMutation({
     mutationFn: async (): Promise<CheckoutSession> => {
-      if (!selectedAsset) throw new Error('Select an asset first')
+      if (!artworkId || !selectedAsset || !agreedToTerms || !user) {
+        throw new Error('Accept the license terms and select a payment asset first')
+      }
       const response = await http.post<{ session: CheckoutSession }>(`/checkout/session`, {
         artworkId,
         asset: selectedAsset,
@@ -61,7 +63,7 @@ export default function CheckoutPage({ artworkId: artworkIdProp }: { artworkId?:
   })
 
   const handleProceedToPayment = async () => {
-    if (!agreedToTerms) return
+    if (!artworkId || !selectedAsset || !agreedToTerms || !user) return
     // Reuse the session the summary query already created; only POST again if
     // it has not resolved yet. Either path creates exactly one session.
     const checkoutSession = session ?? (await createSessionMutation.mutateAsync())
@@ -200,17 +202,23 @@ export default function CheckoutPage({ artworkId: artworkIdProp }: { artworkId?:
           <div className="rounded-card border border-line bg-surface p-6 shadow-card">
             <h2 className="text-h3">License Terms</h2>
             <div className="mt-4">
-              <label className="flex items-start gap-3 cursor-pointer">
+              <label
+                htmlFor="checkout-license-agreement"
+                className="flex items-start gap-3 cursor-pointer"
+              >
                 <input
+                  id="checkout-license-agreement"
+                  name="checkout-license-agreement"
                   type="checkbox"
                   className="mt-1 h-4 w-4 accent-primary"
                   checked={agreedToTerms}
                   onChange={(e) => setAgreedToTerms(e.target.checked)}
+                  aria-describedby="checkout-license-summary"
                   required
                 />
-                <div>
-                  <p className="text-caption-sm text-foreground">
-                    I agree to the{' '}
+                <span>
+                  <span className="text-caption-sm text-foreground">
+                    I have read and agree to the{' '}
                     <button
                       type="button"
                       className="text-primary hover:underline"
@@ -219,13 +227,29 @@ export default function CheckoutPage({ artworkId: artworkIdProp }: { artworkId?:
                       license terms
                     </button>{' '}
                     for this artwork.
-                  </p>
-                  <p className="mt-1 text-caption-xs text-muted">
-                    {LICENSE_PRESETS.find((l) => l.value === artwork.licenseTerms)?.description ??
-                      artwork.licenseTerms}
-                  </p>
-                </div>
+                  </span>
+                </span>
               </label>
+              <div
+                id="checkout-license-summary"
+                className="mt-3 rounded-control border border-line bg-surface-muted p-3 text-caption-sm text-foreground"
+                role="region"
+                aria-label="Selected license terms"
+              >
+                <p className="font-medium">
+                  {LICENSE_PRESETS.find((l) => l.value === artwork.licenseTerms)?.label ??
+                    'Custom license'}
+                </p>
+                <p className="mt-1 whitespace-pre-wrap text-caption-xs text-muted">
+                  {LICENSE_PRESETS.find((l) => l.value === artwork.licenseTerms)?.description ??
+                    artwork.licenseTerms}
+                </p>
+              </div>
+              {!agreedToTerms && (
+                <p className="mt-2 text-caption-xs text-muted" role="status">
+                  Accept the license terms to proceed.
+                </p>
+              )}
             </div>
           </div>
         </div>

@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Input } from '@/components/ui'
 import { LICENSE_PRESETS } from './constants'
 
 interface LicenseTermsFieldProps {
@@ -70,10 +69,19 @@ export default function LicenseTermsField({
   return (
     <div className="space-y-4">
       <label className="block text-caption-sm font-medium text-foreground">
-        {label} {required && <span className="text-danger" aria-hidden="true">*</span>}
+        {label}{' '}
+        {required && (
+          <span className="text-danger" aria-hidden="true">
+            *
+          </span>
+        )}
       </label>
 
-      <fieldset className="rounded-control border border-line bg-surface p-4">
+      <fieldset
+        className="rounded-control border border-line bg-surface p-4"
+        aria-required={required}
+        aria-describedby={error ? `${label.replace(/\s+/g, '-').toLowerCase()}-error` : undefined}
+      >
         <legend className="text-caption-sm font-medium text-foreground mb-3">
           Choose a license preset or write custom terms
         </legend>
@@ -121,14 +129,28 @@ export default function LicenseTermsField({
           </label>
         </div>
 
-        {selectedPreset && !isCustom && (
-          <div className="mb-4 rounded-control bg-surface-muted p-3 text-caption-sm text-muted">
-            {LICENSE_PRESETS.find((p) => p.value === selectedPreset)?.description}
+        {(selectedPreset && !isCustom) || (isCustom && effectiveValue) ? (
+          <div
+            className="mb-4 rounded-control border border-line bg-surface-muted p-3"
+            role="region"
+            aria-label="Selected license terms"
+          >
+            <p className="text-caption-sm font-medium text-foreground">
+              {isCustom
+                ? 'Custom license terms'
+                : LICENSE_PRESETS.find((p) => p.value === selectedPreset)?.label}
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-caption-xs text-muted">
+              {effectiveValue || 'Enter your custom terms below'}
+            </p>
           </div>
-        )}
+        ) : null}
 
         <div>
-          <label htmlFor="custom-terms" className="block text-caption-sm font-medium text-foreground mb-1">
+          <label
+            htmlFor="custom-terms"
+            className="block text-caption-sm font-medium text-foreground mb-1"
+          >
             {isCustom ? 'Custom License Terms' : 'Edit Selected Preset'}
           </label>
           <textarea
@@ -142,7 +164,9 @@ export default function LicenseTermsField({
             disabled={!isCustom && selectedPreset !== null}
           />
           <div className="mt-1 flex justify-between text-caption-xs text-muted">
-            <span>{effectiveValue.length}/{maxLength} characters</span>
+            <span>
+              {effectiveValue.length}/{maxLength} characters
+            </span>
             {!isCustom && selectedPreset && (
               <button
                 type="button"
@@ -160,8 +184,8 @@ export default function LicenseTermsField({
         </div>
 
         <p className="text-caption-xs text-muted">
-          Terms are displayed to buyers before purchase and included on receipts.
-          HTML is not allowed — terms will be rendered as plain text.
+          Terms are displayed to buyers before purchase and included on receipts. HTML is not
+          allowed — terms will be rendered as plain text.
         </p>
       </fieldset>
     </div>
