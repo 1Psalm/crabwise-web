@@ -1,4 +1,6 @@
 import { useMemo } from 'react'
+import { Link } from 'react-router-dom'
+import { Button } from '@/components/ui'
 import { DISPLAY_FALLBACK_PRECISION, getAssetMeta } from '@/config'
 
 interface LineItem {
@@ -80,8 +82,14 @@ export default function PaymentSummaryAndFeeBreakdown({
   }, [price, asset, platformFeePercent, networkFeeEstimate, discount, precision])
 
   const formatAmount = (amount: string) => {
-    const num = parseFloat(amount)
-    return `${num >= 0 && amount.startsWith('-') ? '' : ''}${symbol}${Math.abs(num).toLocaleString(undefined, { minimumFractionDigits: precision, maximumFractionDigits: precision })}`
+    const num = Number(amount)
+    const safe = Number.isFinite(num) ? num : 0
+    const sign = safe < 0 ? '-' : ''
+    const abs = Math.abs(safe).toLocaleString(undefined, {
+      minimumFractionDigits: precision,
+      maximumFractionDigits: precision,
+    })
+    return `${sign}${symbol}${abs}`
   }
 
   return (
@@ -147,6 +155,50 @@ export default function PaymentSummaryAndFeeBreakdown({
           expires.
         </p>
       </div>
+    </div>
+  )
+}
+
+
+type PaymentOutcome = 'success' | 'failed' | 'pending'
+
+interface PaymentResultActionsProps {
+  outcome: PaymentOutcome
+  onPrimaryAction?: () => void
+  primaryLabel?: string
+  homeTo?: string
+  purchasesTo?: string
+}
+
+/**
+ * Clear, keyboard-accessible actions for payment outcomes (#69).
+ * Each outcome gets a relevant primary action and safe navigation.
+ */
+export function PaymentResultActions({
+  outcome,
+  onPrimaryAction,
+  primaryLabel,
+  homeTo = '/',
+  purchasesTo = '/purchases',
+}: PaymentResultActionsProps) {
+  const label =
+    primaryLabel ??
+    (outcome === 'success' ? 'View purchases' : outcome === 'pending' ? 'Check status' : 'Try again')
+
+  return (
+    <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center" role="group" aria-label="Payment result actions">
+      {outcome === 'success' ? (
+        <Button asChild>
+          <Link to={purchasesTo}>{label}</Link>
+        </Button>
+      ) : (
+        <Button type="button" onClick={onPrimaryAction}>
+          {label}
+        </Button>
+      )}
+      <Button variant="secondary" asChild>
+        <Link to={homeTo}>Go home</Link>
+      </Button>
     </div>
   )
 }
