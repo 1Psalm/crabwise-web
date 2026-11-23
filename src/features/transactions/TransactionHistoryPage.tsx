@@ -209,53 +209,56 @@ export default function TransactionHistoryPage() {
         </div>
 
         {transactions.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-12 text-muted">
+          <div className="flex flex-col items-center gap-3 py-12 text-muted" role="status" aria-live="polite">
             <svg className="h-12 w-12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
               <line x1="16" y1="2" x2="16" y2="6" />
               <line x1="8" y1="2" x2="8" y2="6" />
               <line x1="3" y1="10" x2="21" y2="10" />
             </svg>
-            {/* #838 — distinguish "nothing yet" from "nothing matched". */}
-            <p className="text-caption">
-              {hasFilters
-                ? 'No transactions match these filters.'
-                : 'No transactions yet.'}
+            <p className="text-caption font-medium text-foreground">
+              {hasFilters ? 'No transactions match these filters.' : 'No transactions yet.'}
             </p>
-            {hasFilters && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => { setTypeFilter('all'); setStatusFilter('all'); setDateFrom(''); setDateTo(''); setPage(1); }}
-              >
-                Clear filters
-              </Button>
-            )}
+            <p className="text-caption-sm text-muted max-w-md text-center">
+              {hasFilters
+                ? 'Try adjusting or clearing filters to see more activity.'
+                : 'Transactions will appear here after purchases, payouts, fees, or escrow activity on your account.'}
+            </p>
+            <div className="flex gap-2">
+              {hasFilters ? (
+                <Button variant="secondary" size="sm" onClick={() => { setTypeFilter('all'); setStatusFilter('all'); setDateFrom(''); setDateTo(''); setPage(1); }}>
+                  Clear filters
+                </Button>
+              ) : (
+                <Button variant="secondary" size="sm" onClick={() => void refetch()}>
+                  Retry
+                </Button>
+              )}
+            </div>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left" role="table">
+              <caption className="sr-only">Transaction history</caption>
               <thead>
                 <tr className="border-b border-line bg-surface-muted">
-                  <th className="px-4 py-3 text-caption-sm font-semibold text-muted">Date</th>
-                  <th className="px-4 py-3 text-caption-sm font-semibold text-muted">Type</th>
-                  <th className="px-4 py-3 text-caption-sm font-semibold text-muted">Amount</th>
-                  <th className="px-4 py-3 text-caption-sm font-semibold text-muted">Asset</th>
-                  <th className="px-4 py-3 text-caption-sm font-semibold text-muted">Status</th>
-                  <th className="px-4 py-3 text-caption-sm font-semibold text-muted">Transaction</th>
+                  <th scope="col" className="px-4 py-3 text-caption-sm font-semibold text-muted">Date</th>
+                  <th scope="col" className="px-4 py-3 text-caption-sm font-semibold text-muted">Type</th>
+                  <th scope="col" className="px-4 py-3 text-caption-sm font-semibold text-muted">Amount</th>
+                  <th scope="col" className="px-4 py-3 text-caption-sm font-semibold text-muted">Asset</th>
+                  <th scope="col" className="px-4 py-3 text-caption-sm font-semibold text-muted">Status</th>
+                  <th scope="col" className="px-4 py-3 text-caption-sm font-semibold text-muted">Transaction</th>
                 </tr>
               </thead>
               <tbody>
                 {transactions.map((tx) => (
                   <tr key={tx.id} className="border-b border-line/50 hover:bg-surface-muted/50">
-                    <td className="px-4 py-3 text-caption-sm text-foreground">
-                      {formatDate(tx.createdAt)}
-                    </td>
-                    <td className="px-4 py-3 text-caption-sm text-foreground">
-                      <span className="capitalize">{tx.type}</span>
-                    </td>
+                    <td className="px-4 py-3 text-caption-sm text-foreground">{formatDate(tx.createdAt)}</td>
+                    <td className="px-4 py-3 text-caption-sm text-foreground"><span className="capitalize">{tx.type}</span></td>
                     <td className="px-4 py-3 text-caption-sm font-mono text-foreground">
-                      {isNegativeAmount(tx.amount) ? '' : '+'}{tx.amount}
+                      <span aria-label={`${isNegativeAmount(tx.amount) ? 'Debit' : 'Credit'} ${tx.amount} ${tx.asset}`}>
+                        {isNegativeAmount(tx.amount) ? '' : '+'}{tx.amount}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-caption-sm text-foreground">{tx.asset}</td>
                     <td className="px-4 py-3">
@@ -266,13 +269,13 @@ export default function TransactionHistoryPage() {
                           tx.status === 'failed' ? 'bg-danger/10 text-danger' :
                           'bg-muted text-muted'
                         }`}
+                        aria-label={`Status: ${tx.status}`}
                       >
+                        <span aria-hidden="true" className="mr-1">●</span>
                         {tx.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-caption-sm">
-                      <ExplorerLink value={tx.txHash} type="tx" />
-                    </td>
+                    <td className="px-4 py-3 text-caption-sm"><ExplorerLink value={tx.txHash} type="tx" /></td>
                   </tr>
                 ))}
               </tbody>
