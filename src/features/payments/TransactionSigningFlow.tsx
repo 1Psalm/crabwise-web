@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Modal, Spinner } from '@/components/ui'
 import { http } from '@/services'
@@ -33,6 +33,15 @@ type SigningStep =
 
 /** Steps where a signing attempt is already in flight. */
 const IN_FLIGHT_STEPS: SigningStep[] = ['signing', 'submitting']
+
+type SessionRequest = {
+  sessionId: string
+  generation: number
+}
+
+type SubmitRequest = SessionRequest & {
+  signedXdr: string
+}
 
 // ---------------------------------------------------------------------------
 // Stellar error mapping (#718)
@@ -86,46 +95,87 @@ export default function TransactionSigningFlow({
   const [isSigningPending, setIsSigningPending] = useState(false)
   const [networkMismatch, setNetworkMismatch] = useState(false)
   const [needsMainnetConfirm, setNeedsMainnetConfirm] = useState(false)
+  const [stateSessionId, setStateSessionId] = useState(sessionId)
+  const activeSessionId = useRef(sessionId)
+  const sessionGeneration = useRef(0)
 
-  const prepareMutation = useMutation({
-    mutationFn: async (): Promise<{ xdr: string; txHash: string }> => {
+  const { mutate: prepare } = useMutation({
+    mutationFn: async ({
+      sessionId: requestSessionId,
+    }: SessionRequest): Promise<{ xdr: string; txHash: string }> => {
       const response = await http.post<{ xdr: string; txHash: string }>(
-        `/payments/${sessionId}/prepare`,
+        `/payments/${requestSessionId}/prepare`,
       )
       return response
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
+      if (
+        variables.sessionId !== activeSessionId.current ||
+        variables.generation !== sessionGeneration.current
+      )
+        return
+      setStateSessionId(variables.sessionId)
       setSignedXdr(data.xdr)
       setTxHash(data.txHash)
       setStep('waiting_for_wallet')
     },
-    onError: (err) => {
+    onError: (err, variables) => {
+      if (
+        variables.sessionId !== activeSessionId.current ||
+        variables.generation !== sessionGeneration.current
+      )
+        return
+      setStateSessionId(variables.sessionId)
       setError(err instanceof Error ? err.message : 'Failed to prepare transaction')
       setStep('failed')
     },
   })
 
   const submitMutation = useMutation({
-    mutationFn: async (signedXdr: string): Promise<{ txHash: string }> => {
-      const response = await http.post<{ txHash: string }>(`/payments/${sessionId}/submit`, {
+    mutationFn: async ({
+      sessionId: requestSessionId,
+      signedXdr,
+    }: SubmitRequest): Promise<{ txHash: string }> => {
+      const response = await http.post<{ txHash: string }>(`/payments/${requestSessionId}/submit`, {
         signedXdr,
       })
       return response
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
+      if (
+        variables.sessionId !== activeSessionId.current ||
+        variables.generation !== sessionGeneration.current
+      )
+        return
+      setStateSessionId(variables.sessionId)
       setTxHash(data.txHash)
       setStep('completed')
       queryClient.invalidateQueries({ queryKey: ['paymentResult', sessionId] })
       onSuccess?.(data.txHash)
     },
-    onError: (err) => {
+    onError: (err, variables) => {
+      if (
+        variables.sessionId !== activeSessionId.current ||
+        variables.generation !== sessionGeneration.current
+      )
+        return
+      setStateSessionId(variables.sessionId)
       setError(err instanceof Error ? err.message : 'Failed to submit transaction')
       setStep('failed')
     },
   })
 
+  const isCurrentSession = stateSessionId === sessionId
+  const currentStep = isCurrentSession ? step : 'preparing'
+  const currentTxHash = isCurrentSession ? txHash : null
+  const currentError = isCurrentSession ? error : null
+  const currentSignedXdr = isCurrentSession ? signedXdr : null
+  const currentIsSigningPending = isCurrentSession ? isSigningPending : false
+  const currentNetworkMismatch = isCurrentSession ? networkMismatch : false
+  const currentNeedsMainnetConfirm = isCurrentSession ? needsMainnetConfirm : false
+
   const handleSign = useCallback(async () => {
-    if (!signedXdr) return
+    if (!currentSignedXdr) return
     // A wallet on the wrong network cannot produce a valid signature here.
     const connection = getWalletConnection()
     if (isNetworkMismatch(connection?.networkPassphrase)) {
@@ -135,7 +185,7 @@ export default function TransactionSigningFlow({
     }
 
     // Mainnet payments get an explicit confirmation before anything is signed.
-    if (activeStellarNetwork === 'mainnet' && !needsMainnetConfirm) {
+    if (activeStellarNetwork === 'mainnet' && !currentNeedsMainnetConfirm) {
       setNeedsMainnetConfirm(true)
       return
     }
@@ -145,6 +195,7 @@ export default function TransactionSigningFlow({
     setIsSigningPending(true)
     setStep('signing')
     setError(null)
+    const generation = sessionGeneration.current
 
     try {
       if (!connection) {
@@ -153,11 +204,13 @@ export default function TransactionSigningFlow({
         return
       }
 
-      const signed = await signWithConnectedWallet(signedXdr)
+      const signed = await signWithConnectedWallet(currentSignedXdr)
       setStep('submitting')
-      await submitMutation.mutateAsync(signed)
+      await submitMutation.mutateAsync({ sessionId, generation, signedXdr: signed })
+      if (generation !== sessionGeneration.current) return
       setNeedsMainnetConfirm(false)
     } catch (err) {
+      if (generation !== sessionGeneration.current) return
       const message = mapStellarError(err)
       if (/declined/i.test(message)) {
         setStep('failed')
@@ -170,9 +223,17 @@ export default function TransactionSigningFlow({
       }
     } finally {
       signingLock.release()
-      setIsSigningPending(false)
+      if (generation === sessionGeneration.current) setIsSigningPending(false)
     }
-  }, [signedXdr, submitMutation, onReject, onError, needsMainnetConfirm, signingLock])
+  }, [
+    currentSignedXdr,
+    submitMutation,
+    onReject,
+    onError,
+    currentNeedsMainnetConfirm,
+    signingLock,
+    sessionId,
+  ])
 
   const resumeAfterReconnect = useCallback(() => {
     const connection = getWalletConnection()
@@ -185,10 +246,15 @@ export default function TransactionSigningFlow({
     setStep('waiting_for_wallet')
   }, [])
 
-  // Auto-prepare on mount
-  useState(() => {
-    prepareMutation.mutate()
-  })
+  // A signing flow can be reused for a different checkout session without unmounting.
+  // The render derives the preparing state until the new request completes; late callbacks
+  // from the old generation are ignored by the mutation guards above.
+  useEffect(() => {
+    const generation = sessionGeneration.current + 1
+    sessionGeneration.current = generation
+    activeSessionId.current = sessionId
+    prepare({ sessionId, generation })
+  }, [sessionId, prepare])
 
   if (!isConnected) {
     return (
@@ -224,7 +290,8 @@ export default function TransactionSigningFlow({
   }
 
   // Never offer a second sign while one is running.
-  const signDisabled = isSigningPending || IN_FLIGHT_STEPS.includes(step) || networkMismatch
+  const signDisabled =
+    currentIsSigningPending || IN_FLIGHT_STEPS.includes(currentStep) || currentNetworkMismatch
 
   return (
     <div className="rounded-card border border-line bg-surface p-6 shadow-card">
@@ -236,21 +303,21 @@ export default function TransactionSigningFlow({
           <div
             className="h-full bg-primary transition-all duration-300"
             style={{
-              width: `${['preparing', 'waiting_for_wallet', 'signing', 'submitting', 'completed'].indexOf(step) + 1} * 20%`,
+              width: `${['preparing', 'waiting_for_wallet', 'signing', 'submitting', 'completed'].indexOf(currentStep) + 1} * 20%`,
             }}
           />
         </div>
-        <p className="mt-2 text-caption text-muted text-center">{stepLabels[step]}</p>
+        <p className="mt-2 text-caption text-muted text-center">{stepLabels[currentStep]}</p>
       </div>
 
-      {step === 'preparing' && (
+      {currentStep === 'preparing' && (
         <div className="flex flex-col items-center gap-4 py-8">
           <Spinner className="h-10 w-10" />
           <p className="text-caption text-muted">Building transaction…</p>
         </div>
       )}
 
-      {step === 'waiting_for_wallet' && (
+      {currentStep === 'waiting_for_wallet' && (
         <div className="space-y-4">
           <div className="rounded-control bg-surface-muted p-4 text-left">
             <p className="text-caption-sm font-medium text-foreground mb-2">Transaction Details</p>
@@ -261,7 +328,9 @@ export default function TransactionSigningFlow({
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted">TX Hash (predicted)</dt>
-                <dd className="font-mono text-caption-xs">{txHash ? shortAddress(txHash) : ''}</dd>
+                <dd className="font-mono text-caption-xs">
+                  {currentTxHash ? shortAddress(currentTxHash) : ''}
+                </dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted">From</dt>
@@ -291,7 +360,7 @@ export default function TransactionSigningFlow({
             className="w-full"
             size="lg"
             onClick={handleSign}
-            isLoading={isSigningPending || submitMutation.isPending}
+            isLoading={currentIsSigningPending || submitMutation.isPending}
             disabled={signDisabled}
           >
             Open Wallet & Sign
@@ -310,7 +379,7 @@ export default function TransactionSigningFlow({
         </div>
       )}
 
-      {step === 'signing' && (
+      {currentStep === 'signing' && (
         <div
           className="flex flex-col items-center gap-4 py-8"
           role="status"
@@ -325,7 +394,7 @@ export default function TransactionSigningFlow({
         </div>
       )}
 
-      {step === 'submitting' && (
+      {currentStep === 'submitting' && (
         <div
           className="flex flex-col items-center gap-4 py-8"
           role="status"
@@ -337,7 +406,7 @@ export default function TransactionSigningFlow({
         </div>
       )}
 
-      {step === 'completed' && (
+      {currentStep === 'completed' && (
         <div className="flex flex-col items-center gap-4 py-8 text-center">
           <div className="h-16 w-16 rounded-full bg-success/10 flex items-center justify-center">
             <svg
@@ -355,16 +424,16 @@ export default function TransactionSigningFlow({
           <p className="text-caption text-muted">
             Your payment is being processed on the Stellar network.
           </p>
-          {txHash && (
+          {currentTxHash && (
             <div className="mt-4 p-3 rounded-control bg-surface-muted">
               <p className="text-caption-xs text-muted">Transaction Hash</p>
-              <code className="font-mono text-caption-sm break-all">{txHash}</code>
+              <code className="font-mono text-caption-sm break-all">{currentTxHash}</code>
             </div>
           )}
         </div>
       )}
 
-      {step === 'failed' && (
+      {currentStep === 'failed' && (
         <div className="flex flex-col items-center gap-4 py-8 text-center">
           <div className="h-16 w-16 rounded-full bg-danger/10 flex items-center justify-center">
             <svg
@@ -381,7 +450,7 @@ export default function TransactionSigningFlow({
             </svg>
           </div>
           <h3 className="text-h3">Signing Failed</h3>
-          <p className="text-caption text-danger">{error ?? 'Unknown error'}</p>
+          <p className="text-caption text-danger">{currentError ?? 'Unknown error'}</p>
           <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
             <Button
               className="flex-1"
@@ -399,7 +468,7 @@ export default function TransactionSigningFlow({
         </div>
       )}
 
-      {step === 'paused' && (
+      {currentStep === 'paused' && (
         <div className="flex flex-col items-center gap-4 py-8 text-center">
           <div className="h-16 w-16 rounded-full bg-warning/10 flex items-center justify-center">
             <svg
@@ -416,12 +485,12 @@ export default function TransactionSigningFlow({
           </div>
           <h3 className="text-h3">Payment paused</h3>
           <p className="text-caption text-muted">
-            {networkMismatch
+            {currentNetworkMismatch
               ? `Your wallet is on a different network than this app. Switch your wallet to ${STELLAR_NETWORK_LABELS[activeStellarNetwork]} and reload.`
               : 'Your wallet disconnected. Reconnect to continue — your transaction is still prepared and nothing has been charged.'}
           </p>
           <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
-            {networkMismatch ? (
+            {currentNetworkMismatch ? (
               <Button className="flex-1" onClick={() => window.location.reload()}>
                 Reload
               </Button>
@@ -438,7 +507,7 @@ export default function TransactionSigningFlow({
       )}
 
       <Modal
-        isOpen={step === 'waiting_for_wallet' && !isConnected}
+        isOpen={currentStep === 'waiting_for_wallet' && !isConnected}
         onClose={() => {
           setStep('failed')
           onReject?.()
@@ -464,7 +533,7 @@ export default function TransactionSigningFlow({
 
       {/* Mainnet payments are confirmed explicitly before any signature. */}
       <Modal
-        isOpen={needsMainnetConfirm && step === 'waiting_for_wallet'}
+        isOpen={currentNeedsMainnetConfirm && currentStep === 'waiting_for_wallet'}
         onClose={() => setNeedsMainnetConfirm(false)}
         title="Confirm mainnet payment"
         description="This sends real funds on the Stellar mainnet. It cannot be reversed once submitted."
