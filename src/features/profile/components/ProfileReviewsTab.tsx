@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Skeleton, Stars, quantiseRating } from '@/components/ui'
 import type { ArtistProfileExtended } from '../types'
 import type { Review } from '@/types'
-import { REVIEW_SORT_OPTIONS, type ReviewSort } from './reviewSort'
+import { REVIEW_SORT_OPTIONS, sortReviews, type ReviewSort } from './reviewSort'
 
 export interface ProfileReviewsTabProps {
   profile: ArtistProfileExtended
@@ -132,12 +132,7 @@ export default function ProfileReviewsTab({ profile }: ProfileReviewsTabProps) {
   const [sort, setSort] = useState<ReviewSort>('recent')
   const [page, setPage] = useState(1)
 
-  const sorted = useMemo(() => {
-    const copy = [...reviews]
-    if (sort === 'highest') return copy.sort((a, b) => b.rating - a.rating)
-    if (sort === 'lowest') return copy.sort((a, b) => a.rating - b.rating)
-    return copy.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
-  }, [reviews, sort])
+  const sorted = useMemo(() => sortReviews(reviews, sort), [reviews, sort])
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / REVIEWS_PER_PAGE))
   const safePage = Math.min(page, pageCount)
