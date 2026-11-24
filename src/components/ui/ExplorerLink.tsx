@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { activeStellarNetwork } from '@/config'
+import { activeStellarNetwork, STELLAR_EXPLORER_URLS } from '@/config'
 import { useCopyToClipboard } from '@/hooks'
 import { truncateMiddle } from '@/lib'
 import { useUiStore } from '@/stores'
@@ -17,17 +17,6 @@ interface ExplorerLinkProps {
   className?: string
 }
 
-const EXPLORER_ROOTS = {
-  testnet: {
-    tx: 'https://stellar.expert/explorer/testnet/tx',
-    address: 'https://stellar.expert/explorer/testnet/account',
-  },
-  mainnet: {
-    tx: 'https://stellar.expert/explorer/public/tx',
-    address: 'https://stellar.expert/explorer/public/account',
-  },
-} as const
-
 export default function ExplorerLink({
   value,
   type,
@@ -40,7 +29,7 @@ export default function ExplorerLink({
   const pushToast = useUiStore((state) => state.pushToast)
 
   const displayValue = isExpanded ? value : truncateMiddle(value, 8, 6)
-  const href = `${EXPLORER_ROOTS[network][type]}/${encodeURIComponent(value)}`
+  const href = `${STELLAR_EXPLORER_URLS[network]}/${type}/${encodeURIComponent(value)}`
 
   return (
     <span className={`inline-flex items-center gap-1.5 ${className}`}>

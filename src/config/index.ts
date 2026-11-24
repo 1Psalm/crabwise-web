@@ -14,6 +14,7 @@ export {
   activeNetworkPassphrase,
   activeStellarNetwork,
   isSupportedNetworkPassphrase,
+  STELLAR_EXPLORER_URLS,
   STELLAR_NETWORK_LABELS,
   stellarAccountExplorerUrl,
   SUPPORTED_NETWORK_PASSPHRASES,
