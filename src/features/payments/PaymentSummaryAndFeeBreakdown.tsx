@@ -41,7 +41,6 @@ export default function PaymentSummaryAndFeeBreakdown({
 }: PaymentSummaryAndFeeBreakdownProps) {
   const meta = getAssetMeta(asset)
   const precision = meta?.precision ?? DISPLAY_FALLBACK_PRECISION
-  const symbol = meta?.symbol ?? ''
 
   const lineItems = useMemo((): LineItem[] => {
     const priceNum = parseFloat(price)
@@ -90,6 +89,12 @@ export default function PaymentSummaryAndFeeBreakdown({
       maximumFractionDigits: precision,
     })
     return `${sign}${symbol}${abs}`
+  const formatAmount = (amount: string, amountAsset: string) => {
+    const amountMeta = getAssetMeta(amountAsset)
+    const amountPrecision = amountMeta?.precision ?? DISPLAY_FALLBACK_PRECISION
+    const amountSymbol = amountMeta?.symbol ?? ''
+    const num = parseFloat(amount)
+    return `${amountSymbol}${Math.abs(num).toLocaleString(undefined, { minimumFractionDigits: amountPrecision, maximumFractionDigits: amountPrecision })}`
   }
 
   return (
@@ -108,7 +113,7 @@ export default function PaymentSummaryAndFeeBreakdown({
       <dl className="mt-4 space-y-3" role="list">
         {lineItems.map((item, index) => (
           <div
-            key={item.type}
+            key={`${item.asset}-${item.type}`}
             className={`flex justify-between items-center py-2 ${index === lineItems.length - 1 ? 'border-t border-line pt-4' : ''} ${item.type === 'total' ? 'text-body font-bold' : 'text-caption-sm'}`}
             role="listitem"
           >
@@ -123,7 +128,7 @@ export default function PaymentSummaryAndFeeBreakdown({
             <dd
               className={`font-mono ${item.type === 'discount' ? 'text-success' : item.type === 'total' ? 'text-foreground' : 'text-foreground'}`}
             >
-              {formatAmount(item.amount)}
+              {formatAmount(item.amount, item.asset)}
             </dd>
           </div>
         ))}
