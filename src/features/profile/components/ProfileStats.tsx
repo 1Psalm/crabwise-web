@@ -6,10 +6,13 @@ export interface ProfileStatsProps {
 }
 
 export default function ProfileStats({ profile }: ProfileStatsProps) {
+  const countOrPlaceholder = (value: number | null | undefined) =>
+    value === null || value === undefined ? '—' : String(value)
+
   const stats = [
     {
       label: 'Artworks',
-      value: profile.artworksCount || profile.portfolio.length,
+      value: countOrPlaceholder(profile.artworksCount ?? profile.portfolio.length),
       icon: (
         <svg className="h-5 w-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -18,7 +21,7 @@ export default function ProfileStats({ profile }: ProfileStatsProps) {
     },
     {
       label: 'Commissions Completed',
-      value: profile.completedCommissionsCount,
+      value: countOrPlaceholder(profile.completedCommissionsCount),
       icon: (
         <svg className="h-5 w-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -27,14 +30,17 @@ export default function ProfileStats({ profile }: ProfileStatsProps) {
     },
     {
       label: 'Rating',
-      value: `${profile.rating.toFixed(1)} ★ (${profile.reviewCount})`,
+      value:
+        typeof profile.rating === 'number'
+          ? `${profile.rating.toFixed(1)} ★ (${countOrPlaceholder(profile.reviewCount)})`
+          : 'Not rated yet',
       icon: (
         <StarIcon className="h-5 w-5 text-gold" />
       ),
     },
     {
       label: 'Member Since',
-      value: profile.memberSince,
+      value: profile.memberSince || '—',
       icon: (
         <svg className="h-5 w-5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
