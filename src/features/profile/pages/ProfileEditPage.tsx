@@ -9,6 +9,7 @@ import { sanitizeText, sanitizeMessage } from '@/lib/sanitize'
 
 const MAX_NAME_LENGTH = 50
 const MAX_BIO_LENGTH = 500
+const USERNAME_PATTERN = /^[a-z0-9_]{3,30}$/
 
 export default function ProfileEditPage() {
   const { user } = useAuth()
@@ -48,6 +49,9 @@ export default function ProfileEditPage() {
     isAvailable: isUsernameAvailable,
     message: usernameCheckMessage,
   } = useCheckUsername(form.username, user?.username, user?.id)
+
+  const normalizedUsername = form.username.trim().toLowerCase().replace(/^@/, '')
+  const isUsernameFormatInvalid = normalizedUsername.length > 0 && !USERNAME_PATTERN.test(normalizedUsername)
 
   // Dirty state detection
   const isDirty = useMemo(() => {
@@ -95,6 +99,11 @@ export default function ProfileEditPage() {
       return
     }
 
+    if (isUsernameFormatInvalid) {
+      setErrorMessage('Username must be 3–30 letters, numbers, or underscores.')
+      return
+    }
+
     if (isUsernameAvailable === false) {
       setErrorMessage('Please choose a valid and available username.')
       return
@@ -126,7 +135,9 @@ export default function ProfileEditPage() {
   const previewUsername = form.username.trim() || user?.username || 'elena_art'
 
   let usernameBorderClass = 'border-line'
-  if (isUsernameAvailable === false) {
+  if (isUsernameFormatInvalid) {
+    usernameBorderClass = 'border-danger'
+  } else if (isUsernameAvailable === false) {
     usernameBorderClass = 'border-danger'
   } else if (isUsernameAvailable === true) {
     usernameBorderClass = 'border-success'
@@ -316,10 +327,17 @@ export default function ProfileEditPage() {
                     required
                     value={form.username}
                     onChange={(e) => handleChange('username', e.target.value.replace(/^@/, ''))}
+                    aria-invalid={isUsernameFormatInvalid}
+                    aria-describedby={isUsernameFormatInvalid ? 'username-format-error' : undefined}
                     className={`w-full rounded-control border bg-surface pl-8 pr-3.5 py-2.5 text-body text-foreground focus-visible:shadow-focus-ring ${usernameBorderClass}`}
                   />
                 </div>
-                {usernameCheckMessage && (
+                {isUsernameFormatInvalid && (
+                  <p id="username-format-error" className="text-caption-sm text-danger">
+                    Use 3–30 letters, numbers, or underscores only.
+                  </p>
+                )}
+                {!isUsernameFormatInvalid && usernameCheckMessage && (
                   <p className={`text-caption-sm ${usernameTextClass}`}>{usernameCheckMessage}</p>
                 )}
               </label>
